@@ -3,7 +3,12 @@
 
 #include <Arduino.h>
 
-#define RGB_LOW 0
+#define RGB_PWM_FREQ  5000
+#define RGB_PWM_RES   8
+#define RGB_INIT_VAL  0
+#define RGB_MAX_VAL   255
+#define RGB_MIN_VAL   0
+#define RGB_LOW_VAL   0
 
 class RGBLed {
 private:
@@ -16,6 +21,7 @@ private:
 
 public:
   RGBLed(int redPin, int greenPin, int bluePin);
+
   void setRed(int value);
   void setGreen(int value);
   void setBlue(int value);

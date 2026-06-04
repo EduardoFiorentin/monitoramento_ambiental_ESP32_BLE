@@ -4,11 +4,6 @@ RGBLed::RGBLed(int redPin, int greenPin, int bluePin) {
   this->pinR = redPin;
   this->pinG = greenPin;
   this->pinB = bluePin;
-  // this->pinCommon = commonPin;
-
-  // Configuração do pino Comum (Cátodo Comum = Negativo)
-  // pinMode(this->pinCommon, OUTPUT);
-  // digitalWrite(this->pinCommon, LOW);
 
   setupPWM(this->pinR);
   setupPWM(this->pinG);
@@ -16,20 +11,20 @@ RGBLed::RGBLed(int redPin, int greenPin, int bluePin) {
 }
 
 void RGBLed::setupPWM(int pin) {
-  ledcAttach(pin, 5000, 8);
-  ledcWrite(pin, 0); 
+  ledcAttach(pin, RGB_PWM_FREQ, RGB_PWM_RES);
+  ledcWrite(pin, RGB_INIT_VAL); 
 }
 
 void RGBLed::setRed(int value) {
-  ledcWrite(this->pinR, constrain(value, 0, 255));
+  ledcWrite(this->pinR, constrain(value, RGB_MIN_VAL, RGB_MAX_VAL));
 }
 
 void RGBLed::setGreen(int value) {
-  ledcWrite(this->pinG, constrain(value, 0, 255));
+  ledcWrite(this->pinG, constrain(value, RGB_MIN_VAL, RGB_MAX_VAL));
 }
 
 void RGBLed::setBlue(int value) {
-  ledcWrite(this->pinB, constrain(value, 0, 255));
+  ledcWrite(this->pinB, constrain(value, RGB_MIN_VAL, RGB_MAX_VAL));
 }
 
 void RGBLed::setColor(int r, int g, int b) {
@@ -39,7 +34,7 @@ void RGBLed::setColor(int r, int g, int b) {
 }
 
 void RGBLed::clear() {
-  setRed(RGB_LOW);
-  setGreen(RGB_LOW);
-  setBlue(RGB_LOW);
+  setRed(RGB_LOW_VAL);
+  setGreen(RGB_LOW_VAL);
+  setBlue(RGB_LOW_VAL);
 }
