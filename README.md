@@ -40,7 +40,7 @@ O display deve alternar suas telas automaticamente (ex: a cada 3 segundos) ou at
 - **Push-Button 2**: Reseta as memórias de valores Mínimos e Máximos (zera o histórico);
 - **4x Switch-Buttons**: O estado de cada chave deve ser monitorado. Suas funções serão:
     - **Switch 1**: Bloqueia/Libera o controle dos LEDs pelo smartphone (Controle Local vs. Remoto);
-    - **Switch 2**, 3: Ligam/Desligam os led localmente (mudança deve ser refletida no APP);
+    - **Switch 2, 3**: Ligam/Desligam os led localmente (mudança deve ser refletida no APP);
     - **Switch 4**: Define a visualização do gráfico no APP entre graus C e F.
 
 
