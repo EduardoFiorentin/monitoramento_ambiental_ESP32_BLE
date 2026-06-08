@@ -28,6 +28,8 @@
 #define   MSG_HUM_MAX       "Hum max: "       // lcd screen 3
 #define   MSG_BLE_STTS      "BLE Status: "    // lcd screen 4
 #define   MSG_BLE_CONN      "Conectado"
+#define   MSG_BLE_ADV       "Anunciando"
+#define   MSG_BLE_DISC      "Desconectado"
 
 #define CELSIUS_TO_FAHRENHEIT(c) (((c) * 9.0) / 5.0 + 32.0)
 
