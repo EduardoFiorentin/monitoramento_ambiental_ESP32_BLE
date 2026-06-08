@@ -38,14 +38,15 @@ enum LCDStateEnum {
   SCREEN_2_TEMP_F,    // temp graus F + Hum %
   SCREEN_3_TEMP_HIST, // minimo e máximo de temperatura desde a inicialização
   SCREEN_4_HUM_HIST,  // minimo e máximo de umidade desde a inicialização
-  SCREEN_5_BLE        // estado BLE
+  SCREEN_5_BLE,        // estado BLE
+  SCREEN_6_PAIR_CODE   // Apresenta o codigo em tela quando em modo de anúncio
 };
 
 
 // Outputs 
 DHT_Async             dht_sensor(DHT_SENSOR_PIN, DHT_SENSOR_TYPE);
 RGBLed                rgbLed(PIN_LED_RGB_R, PIN_LED_RGB_G, PIN_LED_RGB_B);
-LiquidCrystal_I2C     lcd(0x27, 20, 4);
+LiquidCrystal_I2C     lcd(0x27, 16, 2);
 
 // Inputs
 PulldownButton 
@@ -62,13 +63,14 @@ SwitchPullDown
 
 // State variables ===================================================================
 LCDStateEnum lcdState = SCREEN_1_TEMP_C;
-
+Timer readTimer
 
 // Value variables    ================================================================
 float temp = 0.0, minTemp = 0.0, maxTemp = 0.0;
 float hum = 0.0, minHum = 0.0, maxHum = 0.0;
 
 // Flag variables 
+bool isFirstDthRead = true;
 bool humHasChanged = false, tempHasChanged = false;
 
 
@@ -76,6 +78,13 @@ bool humHasChanged = false, tempHasChanged = false;
 void setup_lcd() {
   lcd.init();
   lcd.backlight();
+}
+
+void setup_min_max() {
+  maxTemp = temp;
+  minTemp = temp;
+  maxHum = hum;
+  minHum = hum;
 }
 
 
@@ -180,6 +189,13 @@ void update_state() {
   if (btn1.wasPressed()) {
     set_next_lcd_state();
     update_lcd_messages();
+  }
+
+  if (btn2.wasPressed()) {
+    maxTemp = temp;
+    minTemp = temp;
+    maxHum = hum;
+    minHum = hum;
   }
 }
 
