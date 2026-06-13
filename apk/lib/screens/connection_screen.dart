@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'dart:async';
+import 'package:permission_handler/permission_handler.dart';
+import 'dashboard_screen.dart';
 
 class ConnectionScreen extends StatefulWidget {
   const ConnectionScreen({super.key});
@@ -13,11 +15,12 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
   // Lista que vai guardar os dispositivos encontrados
   List<ScanResult> scanResults = [];
   bool isScanning = false;
+  bool isConnecting = false;
   late StreamSubscription<List<ScanResult>> _scanResultsSubscription;
   late StreamSubscription<bool> _isScanningSubscription;
 
   // Substitua pelo nome exato que o seu ESP32 vai anunciar
-  final String targetDeviceName = "ESP32_SECURE_BLE_EDUARDO"; 
+  final String targetDeviceName = "ESP32_NimBLE_Eduardo"; 
 
   @override
   void initState() {
@@ -50,7 +53,42 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
   // Função que inicia a busca
   void onScanPressed() async {
     try {
+      // 1. Solicita as permissões de execução na tela do usuário
+      Map<Permission, PermissionStatus> statuses = await [
+        Permission.bluetoothScan,
+        Permission.bluetoothConnect,
+        Permission.location, // O Android exige localização ligada para escanear BLE
+      ].request();
+
+      // Verifica se o usuário negou alguma permissão essencial
+      if (statuses[Permission.bluetoothScan]!.isDenied ||
+          statuses[Permission.location]!.isDenied) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Permissões necessárias foram negadas!')),
+        );
+        return; // Interrompe a função
+      }
+
+      // 2. Verifica se a antena Bluetooth do celular está ligada
+      if (await FlutterBluePlus.adapterState.first != BluetoothAdapterState.on) {
+        // Tenta ligar o Bluetooth automaticamente (funciona em algumas versões do Android)
+        // Se não funcionar, avisa o usuário
+        try {
+          await FlutterBluePlus.turnOn();
+        } catch (e) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Por favor, ligue o Bluetooth e a Localização do celular!')),
+          );
+          return;
+        }
+      }
+
+      // 3. Se tudo estiver OK, limpa a lista antiga e começa a escanear
+      setState(() {
+        scanResults.clear();
+      });
       await FlutterBluePlus.startScan(timeout: const Duration(seconds: 15));
+      
     } catch (e) {
       debugPrint("Erro ao escanear: $e");
     }
@@ -65,27 +103,55 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     }
   }
 
-  // Função de conexão com tratamento para o Passkey (MITM)
   void onConnectPressed(BluetoothDevice device) async {
-    // Paramos de escanear ao tentar conectar
+    // 1. Bloqueia o botão e avisa a tela para se redesenhar
+    setState(() {
+      isConnecting = true;
+    });
+    
     await FlutterBluePlus.stopScan();
     
     try {
-      // O FlutterBluePlus lida nativamente com o pareamento de segurança.
-      // Quando chamamos o connect, o SO Android vai interceptar e exibir 
-      // o pop-up pedindo os 6 dígitos se o ESP32 exigir MITM.
       await device.connect(license: License.free, autoConnect: false);
       
+      try {
+        await device.removeBond();
+        await Future.delayed(const Duration(milliseconds: 500)); 
+      } catch (e) {
+        debugPrint("Sem pareamento anterior para remover.");
+      }
+
+      await device.createBond();
+      
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Conectado com sucesso!')),
+        const SnackBar(content: Text('Conectado e Autenticado com sucesso!')),
       );
       
-      // TODO: Navegar para o Painel de Monitoramento (Seção 2, 3 e 4)
+      if (mounted) {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => DashboardScreen(device: device),
+          ),
+        ).then((_) {
+          // Quando o usuário apertar o botão de "Voltar" no Dashboard e retornar 
+          // para o Scanner, garantimos que o botão "Conectar" seja desbloqueado.
+          if (mounted) {
+            setState(() { isConnecting = false; });
+          }
+        });
+      }
 
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Falha ao conectar: $e')),
+        SnackBar(content: Text('Falha na segurança ou conexão: $e')),
       );
+      await device.disconnect(); 
+      
+      // Se der erro, desbloqueia o botão para o usuário tentar de novo
+      if (mounted) {
+        setState(() { isConnecting = false; });
+      }
     }
   }
 
@@ -109,8 +175,24 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
                     title: Text(result.device.platformName.isEmpty ? "Dispositivo Desconhecido" : result.device.platformName),
                     subtitle: Text('MAC: ${result.device.remoteId} \nSinal (RSSI): ${result.rssi} dBm'),
                     trailing: ElevatedButton(
-                      onPressed: () => onConnectPressed(result.device),
-                      child: const Text('CONECTAR'),
+                      // Se isConnecting for true, o onPressed vira null (o que desativa o botão nativamente)
+                      onPressed: isConnecting ? null : () => onConnectPressed(result.device),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.blueAccent,
+                        foregroundColor: Colors.white,
+                        disabledBackgroundColor: Colors.grey.shade300,
+                      ),
+                      // Troca o texto por um ícone de carregamento giratório
+                      child: isConnecting
+                          ? const SizedBox(
+                              height: 20,
+                              width: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.blueAccent,
+                              ),
+                            )
+                          : const Text('CONECTAR'),
                     ),
                   ),
                 );
