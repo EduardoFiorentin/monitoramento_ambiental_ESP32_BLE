@@ -1,17 +1,17 @@
-#include <NimBLEDevice.h>
-#include <NimBLE2904.h>
+#include <Arduino.h>
 #include "BleController.h"
 
-#define BLE_ADVERTISING_INTERVAL  400
-#define BLE_MIN_CONNECT_INTERVAL  50
-#define BLE_MAX_CONNECT_INTERVAL  100
-#define BLE_SLAVE_LATENCI         0
-#define BLE_SUPERVISION_TIMEOUT   2000
+BleController* bleController;
 
-#define BLE_PASSWORD              666123
+void setup(){
+  Serial.begin(115200);
+  
+  // Instancia e inicializa o BLE apenas após o boot do sistema
+  bleController = new BleController();
+  bleController->begin();
+}
 
-#define BLE_SERVICE_UID_ENV_MONITORING      0x181A
-#define BLE_SERVICE_UID_ACTUATOR_CONTROLL   0xd6ca719a7ae1485abf63ac03fdf84527
-#define BLE_SERVICE_UID_CONNECT_INDICATOR   0xe01c7a1d8c40428cba7ba7f7980120b8
-
-
+void loop() {
+  // Lógica principal
+  delay(100);
+}
