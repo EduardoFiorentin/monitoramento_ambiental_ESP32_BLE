@@ -1,17 +1,44 @@
 #include <Arduino.h>
 #include "BleController.h"
+#include <random>
 
 BleController* bleController;
+
+// Variáveis para controlo do tempo (Envio a cada 2000ms = 2 segundos)
+unsigned long lastTransmissionTime = 0;
+const unsigned long transmissionInterval = 2000; 
+float temperaturaAtual = 25.4;
+float humidadeAtual = 60.8;
 
 void setup(){
   Serial.begin(115200);
   
-  // Instancia e inicializa o BLE apenas após o boot do sistema
   bleController = new BleController();
   bleController->begin();
 }
 
 void loop() {
-  // Lógica principal
-  delay(100);
+  // Temporizador não-bloqueante
+  if (millis() - lastTransmissionTime >= transmissionInterval) {
+    lastTransmissionTime = millis();
+    
+    // Verifica se o utilizador está conectado antes de ler o sensor
+    if (bleController->hasDeviceConnected()) {
+      
+      // LEITURA DO SENSOR
+
+      float valor0_1 = random(0, 10000) / 10000.0;
+      float resultado = (valor0_1 * 2.0) - 1.0;
+
+      temperaturaAtual += resultado; 
+      humidadeAtual += -resultado;
+      // ------------------------------------------------
+      
+      // Envia os dados para a camada Bluetooth
+      bleController->sendAmbientData(temperaturaAtual, humidadeAtual);
+    }
+  }
+  
+  bleController->processIndicators();
+  // O loop fica livre para outras tarefas do sistema
 }

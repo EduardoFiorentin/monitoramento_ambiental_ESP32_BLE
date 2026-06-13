@@ -10,11 +10,12 @@
 #define BLE_MAX_CONNECT_INTERVAL  100
 #define BLE_SLAVE_LATENCI         0
 #define BLE_SUPERVISION_TIMEOUT   2000
+#define BLE_MTU_LEN               512     // tamanho máximo de pacote
 
 #define BLE_PASSWORD              666123
 
 #define BLE_SERVICE_UID_ENV_MONITORING      "181A"
-#define BLE_SERVICE_UID_ACTUATOR_CONTROLL   "d6ca719a-7ae1-485a-bf63-ac03fdf84527" // Recomendado usar os hifens
+#define BLE_SERVICE_UID_ACTUATOR_CONTROLL   "d6ca719a-7ae1-485a-bf63-ac03fdf84527"
 #define BLE_SERVICE_UID_CONNECT_INDICATOR   "e01c7a1d-8c40-428c-ba7b-a7f7980120b8"
 
 // Chars from env monitoring service
@@ -52,11 +53,19 @@ private:
 
   bool deviceConnected = false;
   int lastMinuteNotifyNum = 0;
+  uint16_t currentMinuteNotifyCount = 0;
+  unsigned long lastMinuteResetTime = 0;
+  unsigned long lastRssiNotifyTime = 0;
+
+  void registerNotification(); // Método interno para somar o contador
 
 public: 
   BleController();
   void begin();
   bool hasDeviceConnected();
+  void setTemperature(float temp, float humidity);
+  void sendAmbientData(float temperature, float humidity);
+  void processIndicators(); // Método a ser chamado no loop do Arduino
 };
 
 #endif
