@@ -53,37 +53,37 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
   // Função que inicia a busca
   void onScanPressed() async {
     try {
-      // 1. Solicita as permissões de execução na tela do usuário
+      // solicita as permissões de execução na tela do usuário
       Map<Permission, PermissionStatus> statuses = await [
         Permission.bluetoothScan,
         Permission.bluetoothConnect,
         Permission.location, // O Android exige localização ligada para escanear BLE
       ].request();
 
-      // Verifica se o usuário negou alguma permissão essencial
+      // verifica se o usuário negou alguma permissão
       if (statuses[Permission.bluetoothScan]!.isDenied ||
           statuses[Permission.location]!.isDenied) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Permissões necessárias foram negadas!')),
+          const SnackBar(content: Text('Permissões de Bluetooth e Localização são necessárias!')),
         );
-        return; // Interrompe a função
+        return;
       }
 
-      // 2. Verifica se a antena Bluetooth do celular está ligada
+      // verifica se a antena Bluetooth do celular está ligada
       if (await FlutterBluePlus.adapterState.first != BluetoothAdapterState.on) {
-        // Tenta ligar o Bluetooth automaticamente (funciona em algumas versões do Android)
-        // Se não funcionar, avisa o usuário
+        // Tenta ligar o bluetooth automaticamente
+        // se não funciona, avisa o usuário
         try {
           await FlutterBluePlus.turnOn();
         } catch (e) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Por favor, ligue o Bluetooth e a Localização do celular!')),
+            const SnackBar(content: Text('Ligue o bluetooth!')),
           );
           return;
         }
       }
 
-      // 3. Se tudo estiver OK, limpa a lista antiga e começa a escanear
+      // limpa resultados antigos e escaneia dispositivos
       setState(() {
         scanResults.clear();
       });
@@ -94,7 +94,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     }
   }
 
-  // Função para parar a busca
+  // função para parar a busca
   void onStopPressed() async {
     try {
       FlutterBluePlus.stopScan();
@@ -103,8 +103,8 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     }
   }
 
+  // Função de conexão versão Final (Produção)
   void onConnectPressed(BluetoothDevice device) async {
-    // 1. Bloqueia o botão e avisa a tela para se redesenhar
     setState(() {
       isConnecting = true;
     });
@@ -112,21 +112,39 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     await FlutterBluePlus.stopScan();
     
     try {
+      // Abre a porta de comunicação 
       await device.connect(license: License.free, autoConnect: false);
       
+      // Tenta fazer a autenticação de segurança
       try {
-        await device.removeBond();
-        await Future.delayed(const Duration(milliseconds: 500)); 
+        await device.createBond();
       } catch (e) {
-        debugPrint("Sem pareamento anterior para remover.");
+        // Se quebrar aqui, o usuário errou a senha ou apertou cancelar
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Senha incorreta ou pareamento cancelado!'),
+              backgroundColor: Colors.red,
+              duration: Duration(seconds: 4),
+            ),
+          );
+          setState(() { isConnecting = false; });
+        }
+        await device.disconnect();
+        return;
       }
-
-      await device.createBond();
       
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Conectado e Autenticado com sucesso!')),
-      );
+      // senha estava certa ou já estava salva
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Conectado com sucesso!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
       
+      // navega para o dashboard
       if (mounted) {
         Navigator.push(
           context,
@@ -134,8 +152,6 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
             builder: (context) => DashboardScreen(device: device),
           ),
         ).then((_) {
-          // Quando o usuário apertar o botão de "Voltar" no Dashboard e retornar 
-          // para o Scanner, garantimos que o botão "Conectar" seja desbloqueado.
           if (mounted) {
             setState(() { isConnecting = false; });
           }
@@ -143,15 +159,17 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
       }
 
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Falha na segurança ou conexão: $e')),
-      );
-      await device.disconnect(); 
-      
-      // Se der erro, desbloqueia o botão para o usuário tentar de novo
+      // Se cair aqui, o erro foi antes da senha
       if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erro físico de conexão: $e'),
+            backgroundColor: Colors.red.shade900,
+          ),
+        );
         setState(() { isConnecting = false; });
       }
+      await device.disconnect(); 
     }
   }
 
