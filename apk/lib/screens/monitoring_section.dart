@@ -194,8 +194,20 @@ class _MonitoringSectionState extends State<MonitoringSection> {
                   padding: const EdgeInsets.all(12.0),
                   child: Column(
                     children: [
-                      Text('${tempCelsius.toStringAsFixed(1)} °C', style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.deepOrange)),
-                      Text('${tempFahrenheit.toStringAsFixed(1)} °F', style: const TextStyle(fontSize: 14, color: Colors.grey)),
+                      // Valor Principal em Destaque
+                      Text(
+                        mostrarFahrenheit 
+                            ? '${tempFahrenheit.toStringAsFixed(1)} °F' 
+                            : '${tempCelsius.toStringAsFixed(1)} °C', 
+                        style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.deepOrange)
+                      ),
+                      // Valor Secundário (Pequeno e cinza)
+                      Text(
+                        mostrarFahrenheit 
+                            ? '${tempCelsius.toStringAsFixed(1)} °C' 
+                            : '${tempFahrenheit.toStringAsFixed(1)} °F', 
+                        style: const TextStyle(fontSize: 14, color: Colors.grey)
+                      ),
                     ],
                   ),
                 ),
