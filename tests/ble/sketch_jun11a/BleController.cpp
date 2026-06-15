@@ -21,7 +21,7 @@ public:
       BLE_SLAVE_LATENCI, 
       BLE_SUPERVISION_TIMEOUT
     );
-    Serial.println(" -> Parâmetros de conexão otimizados e aplicados.");
+    Serial.println(" -> Parmetros de conexão aplicados.");
   }
 
   void onDisconnect(NimBLEServer* pServer, NimBLEConnInfo& connInfo, int reason) override {
@@ -34,7 +34,7 @@ public:
 class CustomCharCallbacks : public NimBLECharacteristicCallbacks {
   
   void onRead(NimBLECharacteristic* pCharacteristic, NimBLEConnInfo& connInfo) override {
-    Serial.printf(" [BLE] O telemóvel leu a característica: %s\n", pCharacteristic->getUUID().toString().c_str());
+    Serial.printf(" [BLE] O apk leu a característica: %s\n", pCharacteristic->getUUID().toString().c_str());
   }
 
   void onWrite(NimBLECharacteristic* pCharacteristic, NimBLEConnInfo& connInfo) override {
@@ -49,7 +49,7 @@ class CustomCharCallbacks : public NimBLECharacteristicCallbacks {
         
         uint8_t payload = rxValue[0]; 
         
-        // decodifica com Bitwise AND (&)
+        // decodifica com bitwise
         // 1 - true / 0 - false
         bool led1Ativo        = (payload & 0x01); // Verifica o Bit 0
         bool led2Ativo        = (payload & 0x02); // Verifica o Bit 1
@@ -80,7 +80,7 @@ class CustomCharCallbacks : public NimBLECharacteristicCallbacks {
           uint8_t g = rxValue[1];
           uint8_t b = rxValue[2];
           
-          Serial.printf("[COMANDO BLE] -> Cor RGB recebida | R: %d | G: %d | B: %d\n", r, g, b);
+          Serial.printf("[COMANDO BLE] -> Cor recebida | R: %d | G: %d | B: %d\n", r, g, b);
           // ADICIONAR CONTROLE DOS BOTOES
         } else {
           Serial.println("[ERRO BLE] Pacote RGB incompleto. Esperados 3 bytes.");
@@ -126,11 +126,17 @@ void BleController::begin() {
     BLE_CHAR_UID_HYST_GRAPHIC, NIMBLE_PROPERTY::READ
   );
 
+  // ledsChar 
+  //  write   - traz o estado dos leds do apk
+  //  notify  - envia o estado do bloqueio dos leds vindo do switch 1
   this->ledsCharacteristic = this->actuatorControllService->createCharacteristic(
-    BLE_CHAR_UID_SIMPLE_LEDS, NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::WRITE
+    BLE_CHAR_UID_SIMPLE_LEDS, NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::NOTIFY // adicionado notify em relação à GATT original
   );
   this->rgbLedCharacteristic = this->actuatorControllService->createCharacteristic(
     BLE_CHAR_UID_RGB_LED, NIMBLE_PROPERTY::WRITE_NR
+  );
+  this->deviceConfigCharacteristic = this->actuatorControllService->createCharacteristic( // char nova para bloqueios e C/F
+    BLE_CHAR_UID_DEVICE_CONFIG, NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY
   );
   
   this->rssiCharacteristic = this->connectIndicatorService->createCharacteristic(
@@ -174,7 +180,7 @@ void BleController::begin() {
   this->pAdvertising->start();
 
   Serial.println(">>> BLE Inicializado com sucesso!");
-  Serial.printf("Dispositivo: %s | PIN de Segurança: %06d\n", BLE_NAME_ADVERTISING, BLE_PASSWORD);
+  Serial.printf("Dispositivo: %s | Senha : %06d\n", BLE_NAME_ADVERTISING, BLE_PASSWORD);
 }
 
 bool BleController::hasDeviceConnected() {
@@ -206,9 +212,50 @@ void BleController::sendAmbientData(float temperature, float humidity) {
     this->dataCharacteristic->notify();
     this->registerNotification();
     
-    Serial.println("[BLE] Dados enviados em formato binário (6 bytes).");
+    Serial.println("[BLE] Dados enviados (6 bytes).");
   }
 }
+
+/**
+ * @brief Envia dados de configuração de bloqueios de led e unidade de medida exibidas no aplicativo
+ * @details Envia 1B de dados (0x000000ba), onde 'a' = lockSimpleLeds e 'b' = measure
+ * @param lockSimpleLeds Indica ao aplicativo se o controle dos leds está bloqueado para eles ('0' = controle do app / '1' = controle local)
+ * @param measure Indica ao aplicativo qual a unidade de medida dos gráficos (0 = C / 1 = F) 
+ * @return void 
+ */
+void BleController::sendConfigData(bool lockSimpleLeds, bool measure) {
+  if (!this->hasDeviceConnected()) return;
+  
+  uint8_t payload = 0x00;
+
+  payload |= (measure & 0x01);            
+  payload |= ((lockSimpleLeds & 0x01) << 1);
+
+  this->deviceConfigCharacteristic->setValue((uint8_t*)&payload, 1);
+  this->deviceConfigCharacteristic->notify();
+  this->registerNotification();
+
+}
+
+
+/**
+ * @brief Notifica o aplicativo sobre uma mudança local nos LEDs (feita por botão físico)
+ */
+void BleController::sendLocalLedsState(bool led1, bool led2, bool resetMinMax) {
+  if (!this->hasDeviceConnected() || this->ledsCharacteristic == NULL) return;
+  
+  uint8_t payload = 0x00;
+  if (led1) payload |= 0x01;
+  if (led2) payload |= 0x02;
+  if (resetMinMax) payload |= 0x04;
+
+  this->ledsCharacteristic->setValue((uint8_t*)&payload, 1);
+  this->ledsCharacteristic->notify();
+  this->registerNotification();
+
+  Serial.println("[BLE] estado local dos LEDs sincronizado com o App");
+}
+
 
 void BleController::processIndicators() {
   if (!this->hasDeviceConnected()) return;
@@ -249,7 +296,7 @@ void BleController::processIndicators() {
       this->notifyCountCharacteristic->setValue((uint8_t*)&this->currentMinuteNotifyCount, 2);
     }
     
-    Serial.printf("[BLE] Novo minuto. Total no último min: %d\n", this->lastMinuteNotifyNum);
+    Serial.printf("[BLE] Novo minuto - total no ultimo min: %d\n", this->lastMinuteNotifyNum);
   }
 }
 
@@ -259,7 +306,7 @@ void BleController::registerNotification() {
   this->currentMinuteNotifyCount++;
   
   // Atualiza o valor na memória da característica. 
-  // Assim, quando o Flutter fizer o charContador!.read(), vai apanhar o valor atualizado.
+  // Assim, quando o Flutter fizer o charContador!.read(), vai buscar o valor atualizado.
   if (this->notifyCountCharacteristic != NULL) {
     this->notifyCountCharacteristic->setValue((uint8_t*)&this->currentMinuteNotifyCount, 2);
   }

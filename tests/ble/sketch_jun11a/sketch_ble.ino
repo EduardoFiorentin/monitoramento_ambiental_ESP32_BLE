@@ -36,6 +36,12 @@ void loop() {
       
       // Envia os dados para a camada Bluetooth
       bleController->sendAmbientData(temperaturaAtual, humidadeAtual);
+
+      // envia alterações na configuração (lock dos leds e unidade de medida dos graficos)
+      bleController->sendConfigData(false, false);
+
+      // envia qualquer alteração local nos atuadores para refletir no app
+      bleController->sendLocalLedsState(true, true, true);
     }
   }
   
