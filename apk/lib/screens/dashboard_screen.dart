@@ -36,11 +36,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   @override
   void dispose() {
-    _estadoConexaoSub?.cancel(); // Limpa conexão ao destruir a tela
+    _estadoConexaoSub?.cancel();
     super.dispose();
   }
 
-  // Monitor para as quedas e retornos do sinal Bluetooth
+  // tratamento de queda de conexão
   void monitorarEstadoConexao() {
     _estadoConexaoSub = widget.device.connectionState.listen((BluetoothConnectionState state) async {
       
@@ -60,28 +60,25 @@ class _DashboardScreenState extends State<DashboardScreen> {
       } 
       
       else if (state == BluetoothConnectionState.disconnected) {
-        // Se conexão cai por qualquer motivo
         if (!_desconexaoIntencional) {
           if (mounted) {
+            ScaffoldMessenger.of(context).clearSnackBars(); 
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(
                 content: Text('ESP32 Desconectado. Tentando reconectar...'), 
                 backgroundColor: Colors.red,
-                duration: Duration(days: 1), // Fica fixa na tela até reconectar
+                duration: Duration(days: 1), 
               ),
             );
           }
           
-          // Loop de tentativas de reconexão contínuas
           while (!_desconexaoIntencional && widget.device.isDisconnected) {
             try {
-              // autoConnect: true delega ao hardware do Android a tarefa de conectar 
-              // imediatamente assim que o ESP32 voltar a anunciar o sinal
               await widget.device.connect(license: License.free, autoConnect: false);
-              break; // Sai do loop se conectar com sucesso
+              break; 
             } catch (e) {
-              if (_desconexaoIntencional) break;
-              await Future.delayed(const Duration(seconds: 2)); // Aguarda antes de tentar novamente
+              if (_desconexaoIntencional) break; 
+              await Future.delayed(const Duration(seconds: 2)); 
             }
           }
         }

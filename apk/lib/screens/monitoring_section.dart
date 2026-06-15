@@ -11,21 +11,27 @@ class MonitoringSection extends StatefulWidget {
   @override
   State<MonitoringSection> createState() => _MonitoringSectionState();
 }
+
 class _MonitoringSectionState extends State<MonitoringSection> {
   double tempCelsius = 0.0;
   double tempFahrenheit = 0.0;
   double umidade = 0.0;
   bool estaCarregando = true;
 
-  List<FlSpot> historicoTemperatura = [];
+  bool mostrarFahrenheit = false;
+
+  List<FlSpot> historicoTempC = [];
+  List<FlSpot> historicoTempF = [];
   List<FlSpot> historicoUmidade = [];
   double contadorTempo = 0;
 
   final String uuidServicoAmbiental = "181a";
-  
-  // Duas assinaturas: uma para os sensores e outra para monitorar o status do hardware
-  StreamSubscription<List<int>>? _assinaturaNotificacao;
-  StreamSubscription<BluetoothConnectionState>? _assinaturaEstadoConexao;
+  final String uuidServicoControle = "d6ca719a-7ae1-485a-bf63-ac03fdf84527"; 
+  final String uuidCharDeviceConfig = "fc949d8b-c71e-4ee7-84a0-5c1fd772a999";
+
+  StreamSubscription<List<int>>? _subNotificacao;
+  StreamSubscription<List<int>>? _subConfig;
+  StreamSubscription<BluetoothConnectionState>? _subEstadoConexao;
 
   @override
   void initState() {
@@ -35,42 +41,51 @@ class _MonitoringSectionState extends State<MonitoringSection> {
 
   @override
   void dispose() {
-    _assinaturaNotificacao?.cancel();
-    _assinaturaEstadoConexao?.cancel(); // Cancela o monitor de estado
+    _subNotificacao?.cancel();
+    _subConfig?.cancel();
+    _subEstadoConexao?.cancel();
     super.dispose();
   }
 
   void escutarSensores() {
-    // Escuta continuamente o estado da conexão diretamente nesta aba
-    _assinaturaEstadoConexao = widget.device.connectionState.listen((state) async {
+    _subEstadoConexao = widget.device.connectionState.listen((state) async {
       if (state == BluetoothConnectionState.connected) {
         try {
-          
-          // necessário para não travar a visualização dos dados: 
-          // se já existia uma assinatura antiga pendente da queda, cancela ela
-          await _assinaturaNotificacao?.cancel();
+          await _subNotificacao?.cancel();
+          await _subConfig?.cancel();
 
-          // redescobre os serviços para atualizar o cache do hardware
           List<BluetoothService> services = await widget.device.discoverServices();
           
           for (BluetoothService service in services) {
-            if (service.uuid.toString().toLowerCase().contains(uuidServicoAmbiental)) {
-              for (BluetoothCharacteristic characteristic in service.characteristics) {
-                if (characteristic.properties.notify) {
-                  // 3. Reativa o descritor de notificação no ESP32
-                  await characteristic.setNotifyValue(true);
+            String serviceUuid = service.uuid.toString().toLowerCase();
+
+            // temperatura e umidade
+            if (serviceUuid.contains(uuidServicoAmbiental)) {
+              for (BluetoothCharacteristic char in service.characteristics) {
+                if (char.properties.notify) {
+                  await char.setNotifyValue(true);
+                  _subNotificacao = char.onValueReceived.listen((bytes) => desempacotarDados(bytes));
+                }
+              }
+            }
+
+            // controle - escuta o switch 4
+            if (serviceUuid.contains(uuidServicoControle.toLowerCase())) {
+              for (BluetoothCharacteristic char in service.characteristics) {
+                if (char.uuid.toString().toLowerCase().contains(uuidCharDeviceConfig.toLowerCase())) {
+                  await char.setNotifyValue(true);
                   
-                  // 4. Cria o novo cano de dados reativo
-                  _assinaturaNotificacao = characteristic.onValueReceived.listen((List<int> bytes) {
-                    desempacotarDados(bytes);
-                  });
-                  break;
+                  List<int> valorInicial = await char.read();
+                  atualizarUnidade(valorInicial);
+
+                  // configura para receber notificações notificações 
+                  _subConfig = char.onValueReceived.listen((bytes) => atualizarUnidade(bytes));
                 }
               }
             }
           }
         } catch (e) {
-          debugPrint("Erro ao restabelecer fluxo de dados: $e");
+          debugPrint("Erro no monitoramento: $e");
         } finally {
           if (mounted) setState(() { estaCarregando = false; });
         }
@@ -78,6 +93,19 @@ class _MonitoringSectionState extends State<MonitoringSection> {
     });
   }
 
+  // coleta a unidade em que o grafico deve ser mostrado
+  // byte 1 do payload
+  void atualizarUnidade(List<int> bytes) {
+    if (bytes.isEmpty) return;
+    int payload = bytes.first;
+    if (mounted) {
+      setState(() {
+        mostrarFahrenheit = (payload & 0x01) != 0; // Bit 0
+      });
+    }
+  }
+
+  // desempacotar dados de ambiente (temperatura e humidade)
   void desempacotarDados(List<int> bytes) {
     if (bytes.length < 6) return;
     Uint8List buffer = Uint8List.fromList(bytes);
@@ -93,11 +121,14 @@ class _MonitoringSectionState extends State<MonitoringSection> {
       umidade = rawHumidity / 100.0;
       contadorTempo++;
 
-      historicoTemperatura.add(FlSpot(contadorTempo, tempCelsius));
+      // Atualiza ambas as linhas do tempo
+      historicoTempC.add(FlSpot(contadorTempo, tempCelsius));
+      historicoTempF.add(FlSpot(contadorTempo, tempFahrenheit));
       historicoUmidade.add(FlSpot(contadorTempo, umidade));
 
-      if (historicoTemperatura.length > 60) {
-        historicoTemperatura.removeAt(0);
+      if (historicoTempC.length > 60) {
+        historicoTempC.removeAt(0);
+        historicoTempF.removeAt(0);
         historicoUmidade.removeAt(0);
       }
     });
@@ -187,7 +218,13 @@ class _MonitoringSectionState extends State<MonitoringSection> {
           ],
         ),
         const SizedBox(height: 10),
-        construirCardGrafico('Histórico de Temperatura', historicoTemperatura, Colors.orange),
+        
+        construirCardGrafico(
+          mostrarFahrenheit ? 'Histórico de Temperatura (°F)' : 'Histórico de Temperatura (°C)', 
+          mostrarFahrenheit ? historicoTempF : historicoTempC, 
+          Colors.orange
+        ),
+        
         construirCardGrafico('Histórico de Umidade', historicoUmidade, Colors.blue),
       ],
     );
