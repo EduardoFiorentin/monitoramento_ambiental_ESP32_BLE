@@ -78,8 +78,8 @@ SwitchPullDown
 LCDStateEnum lcdState = SCREEN_1_TEMP_C;
 
 // Value variables    ================================================================
-float temp = 0.0, minTemp = 0.0, maxTemp = 0.0;
-float hum = 0.0, minHum = 0.0, maxHum = 0.0;
+float temp = 0.0, minTemp = 40.0, maxTemp = 0.0;
+float hum = 0.0, minHum = 40.0, maxHum = 0.0;
 
 // Flag variables ===============================================================
 // TODO Integrar
@@ -193,7 +193,7 @@ void update_lcd_messages() {
 
   else if ( lcdState == SCREEN_4_HUM_HIST) {
     String msgMaxHum= MSG_HUM_MAX + String(maxHum) + " %";
-    String msgMinHum= MSG_HUM_MIN + String(minHum) + " C"; 
+    String msgMinHum= MSG_HUM_MIN + String(minHum) + " %"; 
     write_lcd_row_1(msgMaxHum);
     write_lcd_row_2(msgMinHum);
   }
@@ -215,6 +215,8 @@ static bool measure_environment(float *temperature, float *humidity) {
   if (millis() - measurement_timestamp > DHT_MEASURE_TIME) {
     if (dht_sensor->measure(temperature, humidity)) {
       measurement_timestamp = millis();
+      update_min_max();
+      update_lcd_messages();
       return (true);
     }
   }
@@ -234,6 +236,7 @@ void update_hardware_state() {
     minTemp = temp;
     maxHum = hum;
     minHum = hum;
+    update_lcd_messages();
   }
 
   // Controle de bloqueio do hardware
@@ -273,6 +276,21 @@ void update_dht_measures() {
   }
 }
 
+void update_min_max() {
+  if (temp < minTemp) {
+    minTemp = temp;
+  }
+  if (temp > maxTemp) {
+    maxTemp = temp;
+  }
+  if (hum < minHum) {
+    minHum = hum;
+  }
+  if (hum > maxHum) {
+    maxHum = hum;
+  }
+}
+
 void setup() {
   Serial.begin(115200);
   setup_lcd();
@@ -281,7 +299,6 @@ void setup() {
   setup_dht();
   update_lcd_messages();
 }
-
 
 void loop() {
   update_buttons();
