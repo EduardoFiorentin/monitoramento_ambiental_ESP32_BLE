@@ -7,9 +7,11 @@
 #include "Timer.h"
 #include "SimpleLed.h"
 
-#define   DHT_SENSOR_PIN    14
+#define   DHT_SENSOR_PIN    18
 #define   DHT_SENSOR_TYPE   DHT_TYPE_22
 #define   DHT_MEASURE_TIME  4000ul
+
+#define   BLE_TRANSMISSION_INTERVAL 10000
 
 #define   PIN_BUTTON_1      26
 #define   PIN_BUTTON_2      27
@@ -38,11 +40,11 @@
 #define CELSIUS_TO_FAHRENHEIT(c) (((c) * 9.0) / 5.0 + 32.0)
 
 // comentar para compilar para o esp
-#define IS_WOKWI
+// #define IS_WOKWI 
 
 
-// Declarações =====================================================
-
+void update_lcd_messages();
+void transmissionCallback();
 
 
 // ENUM =============================================================
@@ -78,6 +80,7 @@ SwitchPullDown
 
 // State variables ===================================================================
 LCDStateEnum lcdState = SCREEN_1_TEMP_C;
+Timer dataTransmitionTimer(BLE_TRANSMISSION_INTERVAL, transmissionCallback);
 
 // Value variables    ================================================================
 float temp = 0.0, minTemp = 40.0, maxTemp = 0.0;
@@ -88,6 +91,48 @@ float hum = 0.0, minHum = 40.0, maxHum = 0.0;
 // bool isFirstDthRead = true;
 // bool humHasChanged = false, tempHasChanged = false;
 bool isLedsBlockedToApp = false;
+
+// CALLBACKS DE ATUALIZAÇÃO DOS DADOS VINDOS DO BLE  =======================================
+void processAppLedsCommand(bool appLed1, bool appLed2, bool appReset) {
+  if (isLedsBlockedToApp) {
+    Serial.println("Comando do APP ignorado: Controle bloqueado fisicamente (SW1).");
+    return;
+  }
+
+  // Se chegou aqui, o app tem permissão para alterar o hardware
+  if (appLed1) led1.setOn(); 
+  else led1.setOff();
+  
+  if (appLed2) led2.setOn(); 
+  else led2.setOff();
+
+  if (appReset) {
+    Serial.println("Reset dos valores min/max acionado pelo APP.");
+    setup_min_max();
+    update_lcd_messages();
+  }
+}
+
+void processAppRgbCommand(uint8_t r, uint8_t g, uint8_t b) {
+  if (isLedsBlockedToApp) {
+    return;
+  }
+  
+  rgbLed.setColor(r, g, b);
+  // Serial.printf("RGB atualizado pelo App: %d, %d, %d\n", r, g, b);
+}
+
+// TODO Rever implementação do bleController->processIndicators() - usa millis internamente que pode ser um Timer :)
+
+// TODO Rever chamadas aos métodos que enviam informações 
+// Todos eles já tratam internamente se o dispositivo está conectado - não é necessário if
+
+void transmissionCallback() {
+  if (bleController->hasDeviceConnected() && bleController != nullptr) {
+    bleController->sendAmbientData(temp, hum);
+    bleController->processIndicators();
+  }
+}
 
 
 // SETUP METHODS ================================================================
@@ -247,15 +292,32 @@ void update_hardware_state() {
   if (sw1.hasChanged()) {
     // switch foi ligado
     if (sw1.isOn()) {
+      // No ato do bloqueio: 
+      //  leds assumem imediatamente o estado das chaves
+      //  estado refletido para o app (independente do que estava antes no app)
+      
       isLedsBlockedToApp = true;
       Serial.println("Controle local ativado. App bloqueado");
-      // TODO Adicionar comando de bloqueio
+
+      // leds assumem o estado das chaves 
+      if (sw2.isOn()) led1.setOn();
+      else led1.setOff();  
+      if (sw3.isOn()) led2.setOn();
+      else led2.setOff();
+      
+      // novo estado replicado para o apk
+      if (bleController->hasDeviceConnected() && bleController != nullptr){ 
+        bleController->sendConfigData(isLedsBlockedToApp, sw4.isOn());
+        bleController->sendLocalLedsState(led1.isOn(), led2.isOn(), false);
+      }
     }
     // switch foi desligado
     else {
       isLedsBlockedToApp = false;
       Serial.println("Controle local desativado. App liberado");
-      // TODO Adicionar comando de bloqueio
+      if (bleController->hasDeviceConnected() && bleController != nullptr){ 
+        bleController->sendConfigData(isLedsBlockedToApp, sw4.isOn());
+      }
     }
   }
 
@@ -270,6 +332,11 @@ void update_hardware_state() {
         Serial.println("Desligando led 1");
         led1.setOff();
         // TODO Replicar alteração para o app
+      }
+
+      // envia alteração para dispositivo
+      if (bleController->hasDeviceConnected() && bleController != nullptr){ 
+        bleController->sendLocalLedsState(led1.isOn(), led2.isOn(), false);
       }
     }
   }
@@ -286,11 +353,17 @@ void update_hardware_state() {
         led2.setOff();
         // TODO Replicar alteração para o app
       }
+      // envia alteração para dispositivo
+      if (bleController->hasDeviceConnected() && bleController != nullptr){ 
+        bleController->sendLocalLedsState(led1.isOn(), led2.isOn(), false);
+      }
     }
   }
   
   if (sw4.hasChanged()) {
-    // TODO Enviar comando que troca visualização no app
+    if (bleController->hasDeviceConnected() && bleController != nullptr){ 
+      bleController->sendConfigData(isLedsBlockedToApp, sw4.isOn());
+    }
   }
 }
 
@@ -305,12 +378,7 @@ void update_io() {
 
 void update_dht_measures() {
   if (measure_environment(&temp, &hum)) {
-    // TODO Implementar envio das informações 
-    Serial.print("T = ");
-    Serial.print(temp);
-    Serial.print(" deg. C, H = ");
-    Serial.print(hum);
-    Serial.println("%");
+    // TODO Ver se envio temp e hum a cada leitura ou a cada x ms
   }
 }
 
@@ -336,10 +404,18 @@ void setup() {
   setup_io();
   setup_dht();
   update_lcd_messages();
+  if (bleController != nullptr) {
+    bleController->setLedsCallback(processAppLedsCommand);
+    bleController->setRgbCallback(processAppRgbCommand);
+  }
+  dataTransmitionTimer.start();   // TODO ver/refatorar
 }
 
 void loop() {
   update_io();
   update_dht_measures();
   update_hardware_state();
+  dataTransmitionTimer.update();
+  dataTransmitionTimer.update();    // TODO rever / refatorar 
+  // send_ble_data();
 }

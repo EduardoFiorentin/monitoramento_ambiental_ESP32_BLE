@@ -31,6 +31,8 @@
 #define BLE_CHAR_UID_RSSI                   "fe4e82d1-ea3e-43af-a72d-9b7622a8113c"
 #define BLE_CHAR_UID_NOTIFY_COUNT           "9ecd2413-1a5e-490a-993c-da9f6f1259f9"
 
+typedef void (*LedsCommandCallback)(bool led1, bool led2, bool resetMinMax);
+typedef void (*RgbCommandCallback)(uint8_t r, uint8_t g, uint8_t b);
 
 class BleController {
 private:
@@ -71,6 +73,14 @@ public:
   void sendConfigData(bool lockSimpleLeds, bool measure);
   void processIndicators(); // Método a ser chamado no loop do Arduino
   void sendLocalLedsState(bool led1, bool led2, bool resetMinMax);
+
+  // controle de callbacks usados para enviar as informações
+  // do callback de char para a classe do led 
+  LedsCommandCallback onLedsCommand = nullptr;
+  RgbCommandCallback onRgbCommand = nullptr;
+  void setLedsCallback(LedsCommandCallback cb);
+  void setRgbCallback(RgbCommandCallback cb);
+
 };
 
 #endif

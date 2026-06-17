@@ -32,7 +32,12 @@ public:
 };
 
 class CustomCharCallbacks : public NimBLECharacteristicCallbacks {
-  
+private:
+  BleController* parentController;
+
+public:
+  CustomCharCallbacks(BleController* controller) : parentController(controller) {}
+
   void onRead(NimBLECharacteristic* pCharacteristic, NimBLEConnInfo& connInfo) override {
     Serial.printf(" [BLE] O apk leu a característica: %s\n", pCharacteristic->getUUID().toString().c_str());
   }
@@ -66,6 +71,10 @@ class CustomCharCallbacks : public NimBLECharacteristicCallbacks {
         Serial.print("  -> Reset Min/Max: ");
         Serial.println(resetMinMaxAtivo ? "ACIONADO" : "INATIVO");
 
+        // Se uma função foi registrada no arquivo principal, nós a chamamos agora!
+        if (parentController->onLedsCommand != nullptr) {
+          parentController->onLedsCommand(led1Ativo, led2Ativo, resetMinMaxAtivo);
+        }
         // Futura integração de hardware:
         // digitalWrite(PINO_LED1, led1Ativo ? HIGH : LOW);
         // digitalWrite(PINO_LED2, led2Ativo ? HIGH : LOW);
@@ -82,6 +91,9 @@ class CustomCharCallbacks : public NimBLECharacteristicCallbacks {
           
           Serial.printf("[COMANDO BLE] -> Cor recebida | R: %d | G: %d | B: %d\n", r, g, b);
           // ADICIONAR CONTROLE DOS BOTOES
+          if (parentController->onRgbCommand != nullptr) {
+             parentController->onRgbCommand(r, g, b);
+          }
         } else {
           Serial.println("[ERRO BLE] Pacote RGB incompleto. Esperados 3 bytes.");
         }
@@ -109,7 +121,7 @@ void BleController::begin() {
   NimBLEDevice::setSecurityIOCap(BLE_HS_IO_DISPLAY_ONLY); // Diz ao celular que o ESP exibe a senha fixa
 
   this->customBLEServerCallback = new CustomServerCallbacks(&this->deviceConnected);
-  this->customBLECharCallback = new CustomCharCallbacks();
+  this->customBLECharCallback = new CustomCharCallbacks(this);
   this->server = NimBLEDevice::createServer();
   this->server->setCallbacks(this->customBLEServerCallback);
 
@@ -262,8 +274,8 @@ void BleController::processIndicators() {
 
   unsigned long currentMillis = millis();
 
-  // Envia a notificação do RSSI a cada seg
-  if (currentMillis - this->lastRssiNotifyTime >= 1000) {
+  // // Envia a notificação do RSSI a cada seg
+  // if (currentMillis - this->lastRssiNotifyTime >= 1000) {
     this->lastRssiNotifyTime = currentMillis;
 
     // identificadores dos dispositivos pareados
@@ -283,7 +295,7 @@ void BleController::processIndicators() {
         this->registerNotification(); 
       }
     }
-  }
+  // }
 
   //reinicia contador de notificações a cada 60000 ms
   if (currentMillis - this->lastMinuteResetTime >= 60000) {
@@ -312,6 +324,12 @@ void BleController::registerNotification() {
   }
 }
 
+void BleController::setLedsCallback(LedsCommandCallback cb) {
+  this->onLedsCommand = cb;
+}
 
+void BleController::setRgbCallback(RgbCommandCallback cb) {
+  this->onRgbCommand = cb;
+}
 
 
