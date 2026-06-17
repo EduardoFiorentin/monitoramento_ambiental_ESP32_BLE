@@ -82,8 +82,10 @@ float temp = 0.0, minTemp = 0.0, maxTemp = 0.0;
 float hum = 0.0, minHum = 0.0, maxHum = 0.0;
 
 // Flag variables ===============================================================
-bool isFirstDthRead = true;
-bool humHasChanged = false, tempHasChanged = false;
+// TODO Integrar
+// bool isFirstDthRead = true;
+// bool humHasChanged = false, tempHasChanged = false;
+bool isLedsBlockedToApp = false;
 
 // Controll Variables ================================================================
 unsigned long lastMeasureTime = 0;
@@ -233,6 +235,22 @@ void update_hardware_state() {
     maxHum = hum;
     minHum = hum;
   }
+
+  // Controle de bloqueio do hardware
+  if (sw1.hasChanged()) {
+    // switch foi ligado
+    if (sw1.isOn()) {
+      isLedsBlockedToApp = true;
+      Serial.println("Controle local ativado. App bloqueado");
+      // TODO Adicionar comando de bloqueio
+    }
+    // switch foi desligado
+    else {
+      isLedsBlockedToApp = false;
+      Serial.println("Controle local desativado. App liberado");
+      // TODO Adicionar comando de bloqueio
+    }
+  }
 }
 
 void update_buttons() {
@@ -246,10 +264,11 @@ void update_buttons() {
 
 void update_dht_measures() {
   if (measure_environment(&temp, &hum)) {
+    // TODO Implementar envio das informações 
     Serial.print("T = ");
-    Serial.print(temp, 1);
+    Serial.print(temp);
     Serial.print(" deg. C, H = ");
-    Serial.print(hum, 1);
+    Serial.print(hum);
     Serial.println("%");
   }
 }
