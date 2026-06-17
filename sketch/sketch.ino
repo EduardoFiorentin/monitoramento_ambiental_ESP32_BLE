@@ -5,6 +5,7 @@
 #include "SwitchPullDown.h"
 #include "BleController.h"
 #include "Timer.h"
+#include "SimpleLed.h"
 
 #define   DHT_SENSOR_PIN    14
 #define   DHT_SENSOR_TYPE   DHT_TYPE_22
@@ -59,6 +60,7 @@ enum LCDStateEnum {
 DHT_Async             *dht_sensor;
 BleController         *bleController;
 RGBLed                rgbLed(PIN_LED_RGB_R, PIN_LED_RGB_G, PIN_LED_RGB_B);
+SimpleLed             led1(PIN_LED_1), led2(PIN_LED_2);
 LiquidCrystal_I2C     lcd(0x27, 16, 2);
 
 // Inputs
@@ -87,8 +89,6 @@ float hum = 0.0, minHum = 40.0, maxHum = 0.0;
 // bool humHasChanged = false, tempHasChanged = false;
 bool isLedsBlockedToApp = false;
 
-// Controll Variables ================================================================
-unsigned long lastMeasureTime = 0;
 
 // SETUP METHODS ================================================================
 void setup_lcd() {
@@ -119,11 +119,15 @@ void setup_dht() {
 void setup_io() {
   btn1.begin();
   btn2.begin();
+  
   sw1.begin();
   sw2.begin();
   sw3.begin();
   sw4.begin();
+
   rgbLed.begin();
+  led1.begin();
+  led2.begin();
 }
 
 
@@ -254,9 +258,43 @@ void update_hardware_state() {
       // TODO Adicionar comando de bloqueio
     }
   }
+
+  if (sw2.hasChanged()) {
+    if (isLedsBlockedToApp) {
+      if (sw2.isOn() && !led1.isOn()) {
+        Serial.println("Ligando led 1");
+        led1.setOn();
+        // TODO Replicar alteração para o app
+      }
+      if (!sw2.isOn() && led1.isOn()) {
+        Serial.println("Desligando led 1");
+        led1.setOff();
+        // TODO Replicar alteração para o app
+      }
+    }
+  }
+
+  if (sw3.hasChanged()) {
+    if (isLedsBlockedToApp) {
+      if (sw3.isOn() && !led2.isOn()) {
+        Serial.println("Ligando led 1");
+        led2.setOn();
+        // TODO Replicar alteração para o app
+      }
+      if (!sw3.isOn() && led2.isOn()) {
+        Serial.println("Desligando led 1");
+        led2.setOff();
+        // TODO Replicar alteração para o app
+      }
+    }
+  }
+  
+  if (sw4.hasChanged()) {
+    // TODO Enviar comando que troca visualização no app
+  }
 }
 
-void update_buttons() {
+void update_io() {
   sw1.update();
   sw2.update();
   sw3.update();
@@ -301,7 +339,7 @@ void setup() {
 }
 
 void loop() {
-  update_buttons();
+  update_io();
   update_dht_measures();
   update_hardware_state();
 }
