@@ -5,6 +5,12 @@ RGBLed::RGBLed(int redPin, int greenPin, int bluePin) {
   this->pinG = greenPin;
   this->pinB = bluePin;
 
+  // setupPWM(this->pinR);
+  // setupPWM(this->pinG);
+  // setupPWM(this->pinB);
+}
+
+void RGBLed::begin() {
   setupPWM(this->pinR);
   setupPWM(this->pinG);
   setupPWM(this->pinB);

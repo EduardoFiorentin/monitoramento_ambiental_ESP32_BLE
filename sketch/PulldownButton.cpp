@@ -2,6 +2,8 @@
 
 PulldownButton::PulldownButton(int pin) {
   this->pin = pin;
+}
+void PulldownButton::begin() {
   pinMode(this->pin, INPUT); 
 }
 

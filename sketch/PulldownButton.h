@@ -15,6 +15,7 @@ private:
 public:
   PulldownButton(int pin);
   void update();
+  void begin();
   int getState();
   bool wasPressed(); 
 };

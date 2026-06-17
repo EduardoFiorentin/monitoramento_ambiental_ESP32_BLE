@@ -14,6 +14,7 @@ private:
 
 public:
   SwitchPullDown(int pin);
+  void begin();
   void update();
   bool isOn();
   bool hasChanged();

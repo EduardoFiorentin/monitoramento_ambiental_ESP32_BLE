@@ -2,8 +2,13 @@
 
 SwitchPullDown::SwitchPullDown(int pin) {
   this->pin = pin;
+  // pinMode(this->pin, INPUT);
+  // this->state = digitalRead(pin);
+  // this->lastState = this->state;
+}
+
+void SwitchPullDown::begin() {
   pinMode(this->pin, INPUT);
-  
   this->state = digitalRead(pin);
   this->lastState = this->state;
 }

@@ -21,7 +21,7 @@ private:
 
 public:
   RGBLed(int redPin, int greenPin, int bluePin);
-
+  void begin();
   void setRed(int value);
   void setGreen(int value);
   void setBlue(int value);
