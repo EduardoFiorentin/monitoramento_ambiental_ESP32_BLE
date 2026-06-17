@@ -3,9 +3,12 @@
 #include "PulldownButton.h"
 #include "RGBLed.h"
 #include "SwitchPullDown.h"
+#include "BleController.h"
+#include "Timer.h"
 
 #define   DHT_SENSOR_PIN    14
 #define   DHT_SENSOR_TYPE   DHT_TYPE_22
+#define   DHT_MEASURE_TIME  4000
 
 #define   PIN_BUTTON_1      26
 #define   PIN_BUTTON_2      27
@@ -33,13 +36,18 @@
 
 #define CELSIUS_TO_FAHRENHEIT(c) (((c) * 9.0) / 5.0 + 32.0)
 
+// Declarações =====================================================
+
+void measure_timer_callback();
+
+// ENUM =============================================================
 enum LCDStateEnum {
-  SCREEN_1_TEMP_C,    // temp graus C + Hum %
-  SCREEN_2_TEMP_F,    // temp graus F + Hum %
-  SCREEN_3_TEMP_HIST, // minimo e máximo de temperatura desde a inicialização
-  SCREEN_4_HUM_HIST,  // minimo e máximo de umidade desde a inicialização
-  SCREEN_5_BLE,        // estado BLE
-  SCREEN_6_PAIR_CODE   // Apresenta o codigo em tela quando em modo de anúncio
+  SCREEN_1_TEMP_C,      // temp graus C + Hum %
+  SCREEN_2_TEMP_F,      // temp graus F + Hum %
+  SCREEN_3_TEMP_HIST,   // minimo e máximo de temperatura desde a inicialização
+  SCREEN_4_HUM_HIST,    // minimo e máximo de umidade desde a inicialização
+  SCREEN_5_BLE,         // estado BLE
+  SCREEN_6_PAIR_CODE    // Apresenta o codigo em tela quando em modo de anúncio
 };
 
 
@@ -47,6 +55,7 @@ enum LCDStateEnum {
 DHT_Async             dht_sensor(DHT_SENSOR_PIN, DHT_SENSOR_TYPE);
 RGBLed                rgbLed(PIN_LED_RGB_R, PIN_LED_RGB_G, PIN_LED_RGB_B);
 LiquidCrystal_I2C     lcd(0x27, 16, 2);
+BleController         *bleController;
 
 // Inputs
 PulldownButton 
@@ -54,24 +63,26 @@ PulldownButton
   btn2(PIN_BUTTON_2);   // reset minimos e máximos
 
 SwitchPullDown 
-  sw1(PIN_SW_1),    // Bloqueia/Libera o controle dos LEDs pelo smartphone (Controle Local vs. Remoto); 
-  sw2(PIN_SW_2),    // Ligam/Desligam os led localmente (mudança deve ser refletida no APP);
-  sw3(PIN_SW_3),    // Ligam/Desligam os led localmente (mudança deve ser refletida no APP);
-  sw4(PIN_SW_4);    // Define a visualização do gráfico no APP entre graus C e F.
+  sw1(PIN_SW_1),        // Bloqueia/Libera o controle dos LEDs pelo smartphone (Controle Local vs. Remoto); 
+  sw2(PIN_SW_2),        // Ligam/Desligam os led localmente (mudança deve ser refletida no APP);
+  sw3(PIN_SW_3),        // Ligam/Desligam os led localmente (mudança deve ser refletida no APP);
+  sw4(PIN_SW_4);        // Define a visualização do gráfico no APP entre graus C e F.
 
 
 
 // State variables ===================================================================
 LCDStateEnum lcdState = SCREEN_1_TEMP_C;
-Timer readTimer
 
 // Value variables    ================================================================
 float temp = 0.0, minTemp = 0.0, maxTemp = 0.0;
 float hum = 0.0, minHum = 0.0, maxHum = 0.0;
 
-// Flag variables 
+// Flag variables ===============================================================
 bool isFirstDthRead = true;
 bool humHasChanged = false, tempHasChanged = false;
+
+// Controll Variables ================================================================
+Timer dhtMeasureTimer(DHT_MEASURE_TIME, measure_timer_callback);
 
 
 // SETUP METHODS ================================================================
@@ -87,6 +98,10 @@ void setup_min_max() {
   minHum = hum;
 }
 
+void setup_ble() {
+  bleController = new BleController();
+  bleController->begin();
+}
 
 // UPDATE METHODS ================================================================
 void update_buttons() {
@@ -97,7 +112,6 @@ void update_buttons() {
   btn1.update();
   btn2.update();
 }
-
 
 
 // LCD CONTROLL =================================================================
@@ -182,6 +196,12 @@ void update_lcd_messages() {
   
 }
 
+// DHT MEASURE CONTROLL ============================================================
+// chamada pelo timer de leitura de temp
+void measure_timer_callback() {
+  dht_sensor.measure(&temp, &hum);
+}
+
 
 // STATES CONTROLL =================================================================
 
@@ -204,6 +224,7 @@ void update_state() {
 void setup() {
   Serial.begin(115200);
   setup_lcd();
+  setup_ble();
   update_lcd_messages();
 }
 
