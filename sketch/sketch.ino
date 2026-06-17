@@ -8,7 +8,7 @@
 
 #define   DHT_SENSOR_PIN    14
 #define   DHT_SENSOR_TYPE   DHT_TYPE_22
-#define   DHT_MEASURE_TIME  4000
+#define   DHT_MEASURE_TIME  4000ul
 
 #define   PIN_BUTTON_1      26
 #define   PIN_BUTTON_2      27
@@ -36,9 +36,13 @@
 
 #define CELSIUS_TO_FAHRENHEIT(c) (((c) * 9.0) / 5.0 + 32.0)
 
+// comentar para compilar para o esp
+#define IS_WOKWI
+
+
 // Declarações =====================================================
 
-void measure_timer_callback();
+
 
 // ENUM =============================================================
 enum LCDStateEnum {
@@ -52,10 +56,10 @@ enum LCDStateEnum {
 
 
 // Outputs 
-DHT_Async             dht_sensor(DHT_SENSOR_PIN, DHT_SENSOR_TYPE);
+DHT_Async             *dht_sensor;
+BleController         *bleController;
 RGBLed                rgbLed(PIN_LED_RGB_R, PIN_LED_RGB_G, PIN_LED_RGB_B);
 LiquidCrystal_I2C     lcd(0x27, 16, 2);
-BleController         *bleController;
 
 // Inputs
 PulldownButton 
@@ -82,8 +86,7 @@ bool isFirstDthRead = true;
 bool humHasChanged = false, tempHasChanged = false;
 
 // Controll Variables ================================================================
-Timer dhtMeasureTimer(DHT_MEASURE_TIME, measure_timer_callback);
-
+unsigned long lastMeasureTime = 0;
 
 // SETUP METHODS ================================================================
 void setup_lcd() {
@@ -99,18 +102,26 @@ void setup_min_max() {
 }
 
 void setup_ble() {
+#ifndef IS_WOKWI
   bleController = new BleController();
   bleController->begin();
+#else
+  Serial.println("Inicialização do BLE ignorada. Wokwi detectado!");
+#endif
 }
 
-// UPDATE METHODS ================================================================
-void update_buttons() {
-  sw1.update();
-  sw2.update();
-  sw3.update();
-  sw4.update();
-  btn1.update();
-  btn2.update();
+void setup_dht() {
+  dht_sensor = new DHT_Async(DHT_SENSOR_PIN, DHT_SENSOR_TYPE);
+}
+
+void setup_io() {
+  btn1.begin();
+  btn2.begin();
+  sw1.begin();
+  sw2.begin();
+  sw3.begin();
+  sw4.begin();
+  rgbLed.begin();
 }
 
 
@@ -196,16 +207,21 @@ void update_lcd_messages() {
   
 }
 
-// DHT MEASURE CONTROLL ============================================================
-// chamada pelo timer de leitura de temp
-void measure_timer_callback() {
-  dht_sensor.measure(&temp, &hum);
+// DHT MEASURE CONTROLL ===========================================================
+static bool measure_environment(float *temperature, float *humidity) {
+  static unsigned long measurement_timestamp = millis();
+  if (millis() - measurement_timestamp > DHT_MEASURE_TIME) {
+    if (dht_sensor->measure(temperature, humidity)) {
+      measurement_timestamp = millis();
+      return (true);
+    }
+  }
+  return (false);
 }
 
 
 // STATES CONTROLL =================================================================
-
-void update_state() {
+void update_hardware_state() {
   if (btn1.wasPressed()) {
     set_next_lcd_state();
     update_lcd_messages();
@@ -219,17 +235,37 @@ void update_state() {
   }
 }
 
+void update_buttons() {
+  sw1.update();
+  sw2.update();
+  sw3.update();
+  sw4.update();
+  btn1.update();
+  btn2.update();
+}
 
+void update_dht_measures() {
+  if (measure_environment(&temp, &hum)) {
+    Serial.print("T = ");
+    Serial.print(temp, 1);
+    Serial.print(" deg. C, H = ");
+    Serial.print(hum, 1);
+    Serial.println("%");
+  }
+}
 
 void setup() {
   Serial.begin(115200);
   setup_lcd();
   setup_ble();
+  setup_io();
+  setup_dht();
   update_lcd_messages();
 }
 
 
 void loop() {
   update_buttons();
-  update_state();
+  update_dht_measures();
+  update_hardware_state();
 }
