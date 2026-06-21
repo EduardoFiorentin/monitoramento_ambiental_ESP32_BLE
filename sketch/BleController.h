@@ -57,11 +57,13 @@ private:
   NimBLEAdvertising *pAdvertising = NULL;
 
   bool deviceConnected = false;
-  int lastMinuteNotifyNum = 0;
-  uint16_t currentMinuteNotifyCount = 0;
-  unsigned long lastMinuteResetTime = 0;
-  unsigned long lastRssiNotifyTime = 0;
 
+  uint16_t notifyBuckets[60] = {0}; // vetor circular - 1 posição para cada segundo
+  uint8_t currentBucketIndex = 0;   // Aponta para o "segundo" atual
+  unsigned long lastBucketShiftTime = 0;
+
+  unsigned long lastRssiNotifyTime = 0;
+  
   void registerNotification();    // Método interno para somar o contador
 
 public: 
@@ -73,6 +75,9 @@ public:
   void sendConfigData(bool lockSimpleLeds, bool measure);
   void processIndicators(); // Método a ser chamado no loop do Arduino
   void sendLocalLedsState(bool led1, bool led2, bool resetMinMax);
+  void notifyRssi();
+  void notifyNotificationsCount();
+  void updateNotificationWindow();
 
   // controle de callbacks usados para enviar as informações
   // do callback de char para a classe do led 

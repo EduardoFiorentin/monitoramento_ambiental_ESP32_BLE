@@ -211,6 +211,7 @@ void BleController::sendAmbientData(float temperature, float humidity) {
     EnvDataPayload payload;
     
     // ex: 25.43 ºC -> 2543
+    // int16_t -32768 a 32767 ->  -327.68 a 327.67 C/F
     payload.tempCelsius = (int16_t)(temperature * 100);
     
     // Fahrenheit
@@ -268,60 +269,52 @@ void BleController::sendLocalLedsState(bool led1, bool led2, bool resetMinMax) {
   Serial.println("[BLE] estado local dos LEDs sincronizado com o App");
 }
 
-
-void BleController::processIndicators() {
+/**
+ * @brief Lê o RSSI do hardware e notifica o aplicativo.
+ * @details Esta função não possui timer interno. O controle de chamadas deve ser feito externamente.
+ */
+void BleController::notifyRssi() {
   if (!this->hasDeviceConnected()) return;
 
-  unsigned long currentMillis = millis();
-
-  // // Envia a notificação do RSSI a cada seg
-  // if (currentMillis - this->lastRssiNotifyTime >= 1000) {
-    this->lastRssiNotifyTime = currentMillis;
-
-    // identificadores dos dispositivos pareados
-    std::vector<uint16_t> peerIds = this->server->getPeerDevices();
+  std::vector<uint16_t> peerIds = this->server->getPeerDevices();
+  if (peerIds.size() > 0) {
+    uint16_t atualConnHandle = peerIds[0];
+    int8_t rssiValue = 0;
     
-    if (peerIds.size() > 0) {
-      uint16_t atualConnHandle = peerIds[0];
-      int8_t rssiValue = 0;
-      
-      // Chamada nativa da API do NimBLE em C para ler o RSSI do hardware
-      // Retorna 0 quando a leitura é feita com sucesso
-      if (ble_gap_conn_rssi(atualConnHandle, &rssiValue) == 0) {
-        
-        // Atualiza e notifica
-        this->rssiCharacteristic->setValue((uint8_t*)&rssiValue, 1);
-        this->rssiCharacteristic->notify();
-        this->registerNotification(); 
-      }
+    // Lê do hardware e notifica
+    if (ble_gap_conn_rssi(atualConnHandle, &rssiValue) == 0) {
+      this->rssiCharacteristic->setValue((uint8_t*)&rssiValue, 1);
+      this->rssiCharacteristic->notify();
+      this->registerNotification(); 
     }
-  // }
-
-  //reinicia contador de notificações a cada 60000 ms
-  if (currentMillis - this->lastMinuteResetTime >= 60000) {
-    this->lastMinuteResetTime = currentMillis;
-    
-    this->lastMinuteNotifyNum = this->currentMinuteNotifyCount; 
-    this->currentMinuteNotifyCount = 0;
-    
-    if (this->notifyCountCharacteristic != NULL) {
-      this->notifyCountCharacteristic->setValue((uint8_t*)&this->currentMinuteNotifyCount, 2);
-    }
-    
-    Serial.printf("[BLE] Novo minuto - total no ultimo min: %d\n", this->lastMinuteNotifyNum);
   }
 }
 
+/**
+ * @brief Gira a janela deslizante de 60 segundos e atualiza o valor da característica.
+ * @details ATENÇÃO: Esta função DEVE ser chamada externamente a cada 1000ms exatos para garantir a precisão.
+ */
+void BleController::updateNotificationWindow() {
+  if (!this->hasDeviceConnected()) return;
 
-// Importante: Tem de se lembrar de colocar a chamada this->registerNotification() logo abaixo de todos os notify() codigo
-void BleController::registerNotification() {
-  this->currentMinuteNotifyCount++;
-  
-  // Atualiza o valor na memória da característica. 
-  // Assim, quando o Flutter fizer o charContador!.read(), vai buscar o valor atualizado.
-  if (this->notifyCountCharacteristic != NULL) {
-    this->notifyCountCharacteristic->setValue((uint8_t*)&this->currentMinuteNotifyCount, 2);
+  this->currentBucketIndex = (this->currentBucketIndex + 1) % 60;
+  this->notifyBuckets[this->currentBucketIndex] = 0;
+
+  // Soma a janela inteira para obter o total atual
+  uint16_t slidingTotal = 0;
+  for (int i = 0; i < 60; i++) {
+    slidingTotal += this->notifyBuckets[i];
   }
+  if (this->notifyCountCharacteristic != NULL) {
+    this->notifyCountCharacteristic->setValue((uint8_t*)&slidingTotal, 2);
+  }
+}
+
+/**
+ * @brief Apenas registra +1 no momento exato em que a função é chamada
+ */
+void BleController::registerNotification() {
+  this->notifyBuckets[this->currentBucketIndex]++;
 }
 
 void BleController::setLedsCallback(LedsCommandCallback cb) {
