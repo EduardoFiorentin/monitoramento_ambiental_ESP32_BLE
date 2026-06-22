@@ -7,7 +7,7 @@ class PulldownButton {
 private:
   int pin;
   int state;
-  int lastState = LOW; // Alterado para LOW (estado padrão em pull-down)
+  int lastState = LOW;
   bool pressedFlag = false;
   unsigned long lastClickTime = 0;
   unsigned long debounceTime = 50;

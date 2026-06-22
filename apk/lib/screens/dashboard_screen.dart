@@ -65,7 +65,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ScaffoldMessenger.of(context).clearSnackBars(); 
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(
-                content: Text('ESP32 Desconectado. Tentando reconectar...'), 
+                content: Text('Tentando reconectar...'), 
                 backgroundColor: Colors.red,
                 duration: Duration(days: 1), 
               ),

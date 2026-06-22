@@ -22,9 +22,9 @@ void SimpleLed::setOff() {
 
 void SimpleLed::toggle() {
   if (_state) {
-      setOff();
+    setOff();
   } else {
-      setOn();
+    setOn();
   }
 }
 

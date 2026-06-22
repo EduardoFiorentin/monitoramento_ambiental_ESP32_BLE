@@ -19,11 +19,9 @@ public:
     * @param callback O ponteiro para a função que será executada
     */
   Timer(uint32_t intervalMillis, TimerCallback callback);
-
-  // Métodos de controle
-  void start();
-  void stop();
-  void update();
+  void start();   // inicia contador 
+  void stop();    // para contador
+  void update();  // deve ser chamado a cada loop
 
 
   void setInterval(uint32_t intervalMillis);

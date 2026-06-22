@@ -64,7 +64,7 @@ private:
 
   unsigned long lastRssiNotifyTime = 0;
   
-  void registerNotification();    // Método interno para somar o contador
+  void registerNotification();    // Método interno para somar o contador de notificações
 
 public: 
   BleController();
@@ -76,7 +76,6 @@ public:
   void processIndicators(); // Método a ser chamado no loop do Arduino
   void sendLocalLedsState(bool led1, bool led2, bool resetMinMax);
   void notifyRssi();
-  void notifyNotificationsCount();
   void updateNotificationWindow();
 
   // controle de callbacks usados para enviar as informações
@@ -88,4 +87,4 @@ public:
 
 };
 
-#endif
+#endif  // BLE_H

@@ -75,13 +75,9 @@ public:
         if (parentController->onLedsCommand != nullptr) {
           parentController->onLedsCommand(led1Ativo, led2Ativo, resetMinMaxAtivo);
         }
-        // Futura integração de hardware:
-        // digitalWrite(PINO_LED1, led1Ativo ? HIGH : LOW);
-        // digitalWrite(PINO_LED2, led2Ativo ? HIGH : LOW);
-        // if (resetMinMaxAtivo) { resetarValoresMinMax(); }
       }
       
-      // === COMANDO: LED RGB ===
+      // comandos para o led rgb
       else if (writtenUUID.equals(NimBLEUUID(BLE_CHAR_UID_RGB_LED))) {
         // Para um RGB, esperamos receber 3 bytes (Vermelho, Verde, Azul), cada um de 0 a 255.
         if (rxValue.length() >= 3) {
@@ -247,7 +243,6 @@ void BleController::sendConfigData(bool lockSimpleLeds, bool measure) {
   this->deviceConfigCharacteristic->setValue((uint8_t*)&payload, 1);
   this->deviceConfigCharacteristic->notify();
   this->registerNotification();
-
 }
 
 
