@@ -33,6 +33,8 @@
 
 typedef void (*LedsCommandCallback)(bool led1, bool led2, bool resetMinMax);
 typedef void (*RgbCommandCallback)(uint8_t r, uint8_t g, uint8_t b);
+typedef void (*OnClientConnectCallback)();
+typedef void (*OnClientDisconnectCallback)();
 
 class BleController {
 private:
@@ -69,6 +71,7 @@ private:
 public: 
   BleController();
   void begin();
+  bool isAdvertising();
   bool hasDeviceConnected();
   void setTemperature(float temp, float humidity);
   void sendAmbientData(float temperature, float humidity);
@@ -80,10 +83,15 @@ public:
 
   // controle de callbacks usados para enviar as informações
   // do callback de char para a classe do led 
-  LedsCommandCallback onLedsCommand = nullptr;
-  RgbCommandCallback onRgbCommand = nullptr;
+  LedsCommandCallback     onLedsCommand = nullptr;
+  RgbCommandCallback      onRgbCommand = nullptr;
+  OnClientConnectCallback onClientConnectCallback = nullptr;
+  OnClientDisconnectCallback onClientDisconnectCallback = nullptr;
+
   void setLedsCallback(LedsCommandCallback cb);
   void setRgbCallback(RgbCommandCallback cb);
+  void setClientConnectCallback(OnClientConnectCallback cb);
+  void setClientDisconnectCallback(OnClientDisconnectCallback cb);
 
 };
 

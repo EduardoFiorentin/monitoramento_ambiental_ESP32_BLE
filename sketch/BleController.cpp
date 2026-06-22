@@ -2,10 +2,14 @@
 
 class CustomServerCallbacks : public NimBLEServerCallbacks {
 private:
-  bool* pDeviceConnected;
+  bool            *pDeviceConnected;
+  BleController   *parentController;
 
 public:
-  CustomServerCallbacks(bool* connectedFlag) : pDeviceConnected(connectedFlag) {}
+  CustomServerCallbacks(bool* connectedFlag, BleController *controller) {
+    this->pDeviceConnected = connectedFlag; 
+    this->parentController = controller;
+  }
 
   void onConnect(NimBLEServer* pServer, NimBLEConnInfo& connInfo) override {
     *pDeviceConnected = true;
@@ -22,12 +26,22 @@ public:
       BLE_SUPERVISION_TIMEOUT
     );
     Serial.println(" -> Parmetros de conexão aplicados.");
+
+    if (this->parentController != nullptr) {
+      if (this->parentController->onClientConnectCallback != nullptr)
+      this->parentController->onClientConnectCallback();
+    }
+
   }
 
   void onDisconnect(NimBLEServer* pServer, NimBLEConnInfo& connInfo, int reason) override {
     *pDeviceConnected = false;
     Serial.println(">>> Cliente BLE desconectado");
     pServer->startAdvertising();
+    if (this->parentController != nullptr) {
+      if (this->parentController->onClientDisconnectCallback != nullptr)
+      this->parentController->onClientDisconnectCallback();
+    }
   }
 };
 
@@ -36,7 +50,7 @@ private:
   BleController* parentController;
 
 public:
-  CustomCharCallbacks(BleController* controller) : parentController(controller) {}
+  CustomCharCallbacks(BleController* controller): parentController(controller) {}
 
   void onRead(NimBLECharacteristic* pCharacteristic, NimBLEConnInfo& connInfo) override {
     Serial.printf(" [BLE] O apk leu a característica: %s\n", pCharacteristic->getUUID().toString().c_str());
@@ -86,9 +100,9 @@ public:
           uint8_t b = rxValue[2];
           
           Serial.printf("[COMANDO BLE] -> Cor recebida | R: %d | G: %d | B: %d\n", r, g, b);
-          // ADICIONAR CONTROLE DOS BOTOES
+
           if (parentController->onRgbCommand != nullptr) {
-             parentController->onRgbCommand(r, g, b);
+            parentController->onRgbCommand(r, g, b);
           }
         } else {
           Serial.println("[ERRO BLE] Pacote RGB incompleto. Esperados 3 bytes.");
@@ -116,7 +130,7 @@ void BleController::begin() {
   NimBLEDevice::setSecurityPasskey(BLE_PASSWORD);
   NimBLEDevice::setSecurityIOCap(BLE_HS_IO_DISPLAY_ONLY); // Diz ao celular que o ESP exibe a senha fixa
 
-  this->customBLEServerCallback = new CustomServerCallbacks(&this->deviceConnected);
+  this->customBLEServerCallback = new CustomServerCallbacks(&this->deviceConnected, this);
   this->customBLECharCallback = new CustomCharCallbacks(this);
   this->server = NimBLEDevice::createServer();
   this->server->setCallbacks(this->customBLEServerCallback);
@@ -193,6 +207,13 @@ void BleController::begin() {
 
 bool BleController::hasDeviceConnected() {
   return this->deviceConnected;
+}
+
+bool BleController::isAdvertising() {
+  if (this->pAdvertising != nullptr) {
+    return this->pAdvertising->isAdvertising();
+  }
+  return false;
 }
 
 // O __attribute__((packed)) garante que o compilador não adicione bytes vazios na memória
@@ -320,4 +341,11 @@ void BleController::setRgbCallback(RgbCommandCallback cb) {
   this->onRgbCommand = cb;
 }
 
+void BleController::setClientConnectCallback(OnClientConnectCallback cb) {
+  this->onClientConnectCallback = cb;
+}
+
+void BleController::setClientDisconnectCallback(OnClientDisconnectCallback cb) {
+  this->onClientDisconnectCallback = cb;
+}
 

@@ -41,7 +41,7 @@
 #define CELSIUS_TO_FAHRENHEIT(c) (((c) * 9.0) / 5.0 + 32.0)
 
 
-#define DHT_READ_MOCK     // Comentar para usar sensor nas leituras 
+// #define DHT_READ_MOCK     // Comentar para usar sensor nas leituras 
 // #define IS_WOKWI          // Comentar para usar classe de bluetooth
 
 void update_min_max();
@@ -147,6 +147,28 @@ void notificationWindowCallback() {
 }
 
 
+// conexão / desconexão com cliente
+void onDeviceConnectedCallback() {
+  if (bleController != nullptr) {
+    Serial.println("[BLE] Callback de conexão chamada!");
+    bleController->sendConfigData(isLedsBlockedToApp, sw4.isOn());
+    bleController->sendLocalLedsState(led1.isOn(), led2.isOn(), false);
+    update_lcd_messages();
+    Serial.print("DevCon: ");
+    Serial.println(bleController->hasDeviceConnected());
+  }
+}
+
+
+void onDeviceDisconectedCallBack() {
+  if (bleController != nullptr) {
+    Serial.println("[BLE] Callback de desconectado chamada!");
+    update_lcd_messages();
+    Serial.print("DevCon: ");
+    Serial.println(bleController->hasDeviceConnected());
+  }
+}
+
 
 // SETUP METHODS ================================================================
 void setup_lcd() {
@@ -168,6 +190,8 @@ void setup_ble() {
   if (bleController != nullptr) {
     bleController->setLedsCallback(processAppLedsCommandCallback);
     bleController->setRgbCallback(processAppRgbCommandCallback);
+    bleController->setClientConnectCallback(onDeviceConnectedCallback);
+    bleController->setClientDisconnectCallback(onDeviceDisconectedCallBack);
   }
 #else
   Serial.println("Inicialização do BLE ignorada. Wokwi detectado!");
@@ -287,20 +311,21 @@ void update_lcd_messages() {
 
   else if ( lcdState == SCREEN_5_BLE) {
     write_lcd_row_1(MSG_BLE_STTS);
-    write_lcd_row_2(MSG_BLE_CONN);
-  }
-  else if ( lcdState == SCREEN_5_BLE) {
-    write_lcd_row_1(MSG_BLE_STTS);
     
-    if (bleController != nullptr && bleController->hasDeviceConnected()) {
-      write_lcd_row_2(MSG_BLE_CONN);
-    } else {
-      write_lcd_row_2(MSG_BLE_DISC);
+    if (bleController != nullptr) {
+      if (bleController->hasDeviceConnected()) {
+        write_lcd_row_2(MSG_BLE_CONN);
+      } 
+      else if (bleController->isAdvertising()) {
+        write_lcd_row_2(MSG_BLE_ADV); 
+      } 
+      else {
+        write_lcd_row_2(MSG_BLE_DISC);
+      }
+    } 
+    else {
+      write_lcd_row_2("BLE Off");
     }
-  }
-  else {
-    write_lcd_row_1("ERRO!");
-    write_lcd_row_2("Unkn. State");
   }
 }
 
@@ -431,7 +456,7 @@ void update_io() {
 }
 
 void update_dht_measures() {
-  measure_environment(&temp, &hum)
+  measure_environment(&temp, &hum);
 }
 
 void update_min_max() {
