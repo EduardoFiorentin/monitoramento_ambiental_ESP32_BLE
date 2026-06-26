@@ -40,7 +40,7 @@ O repositório do projeto está estruturado da seguinte maneira:
  ┃ ┣ 📜 Timer.cpp                         # Implementação da rotina não-bloqueante para tarefas
  ┃ ┣ 📜 Timer.h                           # Header do controlador de tempo via millis()
  ┃ ┗ 📜 sketch.ino                        # Arquivo principal (Máquina de estados, LCD e Orquestrador)
- ┗ 📜 README.md                           # Documentação central do projeto
+ ┗ 📜 README.md                           # Requisitos do projeto
 ```
 
 ---
@@ -247,7 +247,7 @@ Imediatamente após subir a pilha de rádio, o firmware executa uma otimização
 #### 3.2.2. Configuração de Segurança e Pareamento Autenticado
 Para impedir que usuários não autorizados interceptem a telemetria ou enviem comandos maliciosos aos atuadores, o sistema implementa segurança estrita baseada em criptografia com autenticação e proteção contra ataques de personificação (*Man-In-The-Middle* - MITM).
 
-```cpp
+```c++
 NimBLEDevice::setSecurityAuth(true, true, true); // Bonding + MITM + Secure Connections
 NimBLEDevice::setSecurityPasskey(BLE_PASSWORD);
 NimBLEDevice::setSecurityIOCap(BLE_HS_IO_DISPLAY_ONLY);
@@ -402,7 +402,7 @@ A tela inicial (`ConnectionScreen`) atua como a porta de entrada segura do siste
 
 Durante o escaneamento, o aplicativo aplica um filtro para exibir exclusivamente dispositivos cujo pacote de *advertising* contenha o nome esperado (`ESP32_NimBLE_Eduardo`). O fluxo de conexão implementa os requisitos de segurança mitigando ataques MITM: a chamada `device.createBond()` força a requisição do sistema operacional para que o usuário insira o *Passkey*. Caso o pareamento seja rejeitado ou a senha incorreta, a conexão é abortada de forma limpa, liberando a *thread*.
 
-### 4.2. Gerenciamento do Ciclo de Vida (Dashboard)
+### 4.2. Gerenciamento do Ciclo de Vida (*Dashboard*)
 Uma vez conectado, o usuário é redirecionado ao `DashboardScreen`, que orquestra a navegação entre os três painéis principais usando um `BottomNavigationBar`. Esta tela possui duas responsabilidades principais:
 
 - **Resiliência e Auto-Reconexão**: Uma escuta (`StreamSubscription`) monitora continuamente o estado do rádio. Se o dispositivo sofrer uma desconexão não intencional (por perda de sinal ou reinicialização do ESP32), o aplicativo exibe um alerta vermelho em tela e entra em um laço de tentativas de reconexão automática em *background*, restaurando a sessão de forma transparente quando o sinal retorna.
@@ -418,29 +418,36 @@ Os gráficos históricos dinâmicos são construídos usando a biblioteca `fl_ch
 
 
 ### 4.4. Painel de Controle: Sincronismo e UX Condicional
+A interface de atuação (ControlSection) vai muito além do envio unilateral de comandos: ela atua como um espelho bidirecional, refletindo o estado real e reagindo dinamicamente às restrições impostas pelo microcontrolador localmente.
 
-A interface de atuação (`ControlSection`) não apenas envia comandos, mas reflete o estado real e as restrições impostas pelo hardware.
+Para garantir a resiliência, a tela monitora ininterruptamente o ciclo de vida da comunicação (widget.device.connectionState.listen). Em caso de reinicialização ou reconexão do dispositivo, o aplicativo destrói assinaturas órfãs (streams) e realiza um remapeamento automático de todas as características GATT necessárias para o funcionamento dos controles.
 
-Para respeitar o bloqueio físico (acionado pelo *Switch* 1 da *protoboard*), o app subscreve à característica de configuração do dispositivo. Caso a *flag* de bloqueio (`isHardwareLocked`) seja acionada, o aplicativo reage visualmente envolvendo todos os controles em um `IgnorePointer` e reduzindo a opacidade (`_Opacity_`), impossibilitando interações de toque e alertando o usuário de que o dispositivo está em "Modo Local".
+#### 4.4.1. Trava de Segurança Híbrida (Bloqueio Físico)
+Para respeitar o bloqueio acionado pelo *Switch* 1 da protoboard, o aplicativo subscreve na característica de configuração do dispositivo (`uuidCharDeviceConfig`). Quando o ESP32 notifica uma mudança, o aplicativo decodifica o pacote verificando o Bit 1 (`isHardwareLocked = (payload & 0x02) != 0`).
 
-A manipulação dos atuadores segue padrões específicos:
+Caso a trava esteja ativada, um componente de alerta vermelho (Container) é renderizado no topo da tela, avisando explicitamente que o controle está bloqueado, e todos os seletores e botões da interface são englobados em um componente `IgnorePointer` associado a uma redução de opacidade (`Opacity` para 50%), impossibilitando interações de toque e provendo um claro *feedback* visual (UX) de que a prioridade de operação pertence ao "Modo Local" do hardware.
 
-- **LEDs Simples**: Comandos são enviados mascarando os booleanos dos botões virtuais em um único payload de 1 byte via operação matemática (ex: `payload |= 0x01` para o LED Vermelho).
+#### 4.4.2. Estratégias de Atuação (LEDs Simples e RGB)
+A manipulação dos atuadores pelo usuário obedece a duas arquiteturas de rede diferentes, dependendo do volume de dados exigido:
 
-- **LED RGB**: Um Color Picker converte a cor escolhida na interface visual para três parâmetros (R, G, B) e os envia ao microcontrolador sob a diretiva `_WriteWithoutResponse_`, garantindo que o envio contínuo gerado pelo arrastar do dedo na paleta de cores não cause engarrafamento na fila de requisições do Bluetooth.
+- **LEDs Simples e Operações *Bitwise***: Os atuadores do tipo liga/desliga compartilham uma única característica GATT (`uuidCharLedsSimples`). No envio de um comando, o aplicativo empacota os valores dos botões virtuais (`SwitchListTile`) aplicando operações lógicas de junção OR em um único byte (ex: `payload |= 0x01` para o LED Vermelho, `payload |= 0x02` para o LED Verde e `payload |= 0x04` para o Reset).
+
+- **Efeito de Interface**: Para proporcionar a sensação tátil de um push-button na tela ao acionar o comando Reset, o aplicativo utiliza um agendador (`Timer`) que devolve a chave virtual para a posição "desligada" exatamente 1 segundo após o envio do comando ao hardware, aprimorando a interação do usuário.
+
+- **LED RGB (`WriteWithoutResponse`)**: Para o mapeamento de cores dinâmicas, utiliza-se a biblioteca `flutter_colorpicker`, que extrai do espectro HSV os três inteiros puros [R, G, B]. Esses três bytes são disparados sequencialmente para o microcontrolador sob a diretiva de rede `withoutResponse: true`. Essa escolha arquitetural é importante para garantir que o envio frenético de coordenadas de cor, gerado pelo arrastar ininterrupto do dedo na paleta, não crie um engarrafamento na fila de requisições aguardando sinais de recebimento (GATT ACK) do ESP32, mantendo a transição visual do hardware fluida.
 
 ### 4.5. Painel de Sinal: Auditoria de Conexão Ativa e Passiva
-O terceiro painel (`ConnectionMetricsSection`) foi desenhado para expor informações sobre a estabilidade do link de comunicação. Para otimizar os recursos do dispositivo móvel e do hardware, foram adotadas duas estratégias de leitura concorrentes:
+O terceiro painel (`ConnectionMetricsSection`) foi pensado para expor informações sobre a estabilidade do link de comunicação. Para otimizar os recursos do dispositivo móvel e do hardware, foram adotadas duas estratégias de leitura concorrentes:
 
-- **Leitura Passiva (RSSI)**: O sinal é recebido e processado via *Notify*. Como a força do sinal (dBm) trafega via `int8` (com sinal), mas a linguagem Dart tipifica nativamente bytes sem sinal (0-255), aplica-se um tratamento condicional no buffer recebido (`bytes.first > 127 ? bytes.first - 256 : bytes.first`) para recompor o valor negativo correto da atenuação do sinal.
+- **Leitura Passiva (RSSI)**: O sinal é recebido e processado via *Notify*. Como a força do sinal (dBm) trafega via `int8` (com sinal), mas a linguagem Dart tipifica nativamente bytes sem sinal (0-255), aplica-se um tratamento condicional no buffer recebido (`bytes.first > 127 ? bytes.first - 256 : bytes.first`) para recompor o valor negativo correto da atenuação do sinal. Após a transformação, o valor atual é exibido e armazenado para composição do histórico.
 
-**Leitura Ativa (Polling de Notificações)**: Ao invés de o ESP32 sobrecarregar a rede notificando sempre que a janela rotativa de pacotes muda, o aplicativo instancia um `Timer.periodic` de 2 segundos. Este timer dispara comandos de leitura ativa (*Read Request*) para a característica do contador.
+**Leitura Ativa (Polling de Notificações)**: Ao invés de o ESP32 sobrecarregar a rede notificando sempre que a janela rotativa de pacotes muda, o aplicativo instancia um `Timer.periodic` de 2 segundos. Este timer dispara comandos de leitura ativa (*Read Request*) para a característica do contador. Ao receber a requisição, o controlador computa a quantidade de notificações dos últimos 60 segundos e então retorna o valor encontrado. 
 
 --- 
 ## 5. Instruções de Compilação e Instalação do Aplicativo
 O aplicativo móvel foi projetado para operar em smartphones com o sistema operacional Android 10 ou superior (API nível 29+). Para reproduzir o ambiente de desenvolvimento, compilar o código-fonte a partir do zero ou gerar o pacote de instalação final (APK), siga os procedimentos descritos abaixo.
 
-Caso prefira, é possível também baixar e instalar a versão compilada que se encontra no diretório `/bin` 
+Caso prefira, é possível também baixar e instalar a versão compilada que se encontra no diretório `/bin`.
 
 
 ### 5.1. Pré-requisitos do Ambiente
@@ -497,7 +504,7 @@ Transfira o arquivo "`app-release.apk`" gerado na seção anterior diretamente p
 **Método 2**: Execução em Modo de Depuração (Desenvolvimento)
 Se você preferir rodar o aplicativo conectado ao computador para acompanhar os logs em tempo real através do terminal, conecte o smartphone ao computador via cabo USB com a depuração ativada. 
 
-**OBS: Para este modo, é obrigatório a ativação das configurações "Opções do Desenvolvedor" e "Depuração USB".**
+**OBS: Para este modo, é obrigatório a ativação do "Modo Desenvolvedor" e da opção "Depuração USB". Caso seja solicitado o tipo de conexão USB, selecione a opção "Transferência de arquivos (FTP)" ou semelhante.**
 
 No terminal, execute o seguinte comando:
 ```sh

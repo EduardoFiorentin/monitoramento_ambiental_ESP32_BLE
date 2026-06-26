@@ -1,7 +1,12 @@
 # Monitoramento de temperatura, humidade e controle de atuadores com ESP 32 e BLE
 
+---
+
+**ATENÇÃO!!**
 **ESTE É O ARQUIVO DE REQUISITOS DO TRABALHO!**
 **Para visualizar a documentação, acesse /docs**
+
+---
 
 Este é um trabalho desenvolvido durante uma disciplina optativa de sistemas embarcados, cursada como requisito para conclusão do bacharelado em ciência da computação na Universidade Federal da Fronteira Sul (UFFS).
 
