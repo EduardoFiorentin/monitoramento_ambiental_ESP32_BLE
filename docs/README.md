@@ -3,16 +3,22 @@
 ---
 
 ## 1. Introdução
-Esta documentação descreve as implementações do projeto. Inicialmente, é apresentada uma visão geral dos objetivos do projeto e implementações. Em seguida, são detalhadas as tecnologias, técnicas implementadas e funcionamento do firmware (ESP32) e da aplicação móvel (Flutter).
 
-O projeto é estruturado da seguinte maneira: 
+Esta documentação detalha o desenvolvimento e as decisões arquiteturais de um sistema embarcado completo, focado em monitoramento ambiental e controle de atuadores via *Bluetooth Low Energy* (BLE). Desenvolvido como requisito parcial para aprovação na disciplina de Sistemas Embarcados e IOT do bacharelado em Ciência da Computação da Universidade Federal da Fronteira Sul (UFFS), o projeto integra um firmware operando em um microcontrolador ESP32 e um aplicativo móvel construído com o framework Flutter.
+
+O principal objetivo das aplicações é demonstrar a implementação de uma comunicação sem fio eficiente e segura entre dispositivos, explorando o gerenciamento do ciclo de vida da conexão BLE, técnicas de empacotamento binário de dados para economia de banda e o estabelecimento de vínculos seguros por meio de pareamento autenticado (MITM/Passkey).
+
+Nas seções a seguir, a documentação está organizada para guiar o leitor através de todas as camadas das aplicações, detalhando a configuração do hardware, a lógica assíncrona do firmware, a modelagem do perfil GATT customizado e as soluções de interface adotadas no aplicativo cliente.
+
+O repositório do projeto está estruturado da seguinte maneira:
+
 ```
 📦 raiz-do-repositorio
  ┣ 📂 bin/
  ┃ ┗ 📜 app-release.apk                   # Arquivo binário gerado para instalação no Android
  ┣ 📂 docs/                               # Documentação exigida pelo trabalho
  ┃ ┗ 📜 README.md                         # Documentação principal do projeto
- ┣ 📂 /apk/lib/                                # Código-fonte do aplicativo mobile (Flutter)
+ ┣ 📂 /apk/lib/                           # Código-fonte do aplicativo mobile (Flutter)
  ┃ ┣ 📂 screens/
  ┃ ┃ ┣ 📜 connection_metrics_section.dart # Painel de métricas de conexão, RSSI e contador de pacotes
  ┃ ┃ ┣ 📜 connection_screen.dart          # Tela de escaneamento BLE e pareamento seguro
@@ -40,11 +46,11 @@ O projeto é estruturado da seguinte maneira:
 ---
 ## 2. Visão geral do projeto
 
-Este projeto apresenta o desenvolvimento de um sistema bidirecional de telemetria e controle baseado na tecnologia Bluetooth Low Energy (BLE). A solução integra um dispositivo embarcado (ESP32 atuando como Servidor GATT) e um aplicativo móvel (desenvolvido em Flutter, atuando como Cliente Central) para criar uma interface completa de hardware e software. 
+Este projeto propõe uma solução bidirecional de telemetria e controle baseada no protocolo *Bluetooth Low Energy* (BLE). A arquitetura integra um dispositivo embarcado (ESP32 atuando como Servidor GATT) e um aplicativo móvel (Cliente Central desenvolvido em Flutter), estabelecendo uma interface fluida e de baixa latência entre hardware e software.
 
-O sistema permite o monitoramento de grandezas ambientais (temperatura e umidade), o acionamento de atuadores (LEDs simples e RGB) com suporte a bloqueio físico de segurança, e o acompanhamento de indicadores de qualidade da conexão em tempo real. O foco principal é a eficiência na transmissão de dados, utilizando o protocolo BLE para garantir baixo consumo de energia e alta responsividade.
+O sistema foi desenvolvido para monitorar variáveis ambientais em tempo real, acionar atuadores físicos e monitorar a qualidade da conexão sem fio. O diferencial da implementação reside no foco em eficiência energética e responsividade, empregando estratégias de compactação de dados e segurança contra acessos não autorizados.
 
-### 2.1. Arquitetura do Firmware
+### 2.1. Arquitetura do Firmware (ESP32)
 
 O firmware foi desenvolvido em C++ sob paradigma misto entre Orientação a Objetos e estruturado, utilizando a biblioteca `NimBLE-Arduino`. A arquitetura de software opera de forma totalmente não-bloqueante por meio da delegação de temporizadores para o laço de execução principal. 
 
@@ -55,6 +61,11 @@ O dispositivo opera tanto de forma autónoma (Modo Local) como subordinada (Modo
 - **Interface Física**: Display LCD I2C (16x2) gerido por uma máquina de estados finitos (FSM) para navegação de dados, além de botões e switches físicos (pull-down) para comandos locais.
 - **Trava de Hardware (Security Lock)**: Uma trava a nível do hardware que permite a um operador físico bloquear qualquer comando vindo da aplicação móvel e assumir o controle dos atuadores.
 
+O dispositivo possui dupla modalidade de operação (Local e Remota), e implementa as capacidades descritas a seguir:
+- **Sensoriamento Ambiental**: Coleta de temperatura e umidade através do sensor DHT22.
+- **Atuação Dinâmica**: Controle independente de LEDs simples e modulação de largura de pulso (PWM) para transições de cores em um LED RGB.
+- **Interface Física e Navegação**: Um display LCD (16x2) gerido por uma Máquina de Estados Finitos (FSM) para apresentação dos dados e diagnósticos do sistema. A interação local ocorre por meio de botões (push-buttons com tratamento de debounce) e chaves estáticas (pull-down).
+- **Trava de Segurança**: Um mecanismo físico que permite ao operador local bloquear os controles do aplicativo móvel, isolando o dispositivo contra comandos externos e assumindo localmente o controle dos via chaves estáticas.
 
 O diagrama abaixo apresenta a estrutura das classes utilizadas no firmware.
 
@@ -190,52 +201,95 @@ Detalhes de implementação serão apresentados na seção [Descrição do Firmw
 
 ### 2.2. Arquitetura de Software (Aplicação Móvel)
 
-A aplicação móvel foi desenvolvida sobre o framework Flutter (Dart), projetada para atuar como o painel de controle e monitoramento do sistema. A arquitetura da interface de usuário está dividida em três seções principais:
+O cliente móvel, construído sobre o framework Flutter (Dart), atua como controlador de comando e telemetria do sistema. A interface do usuário é dividida em três telas primárias:
 
-- **Monitoramento Ambiental**: Apresentação dos dados de temperatura e umidade e renderização de gráficos históricos contínuos e dinâmicos.
-- **Painel de Controle**: Interface para acionamento remoto dos LEDs simples e um seletor de cores HSV para o LED RGB. Este painel é reativo, bloqueando-se automaticamente caso a Trava de Hardware do ESP32 seja ativada fisicamente.
-- **Métricas de Conexão**: Tela de monitoramento do sinal de rádio (gráfico de RSSI em dBm) e contagem da quantidade de notificações recebidas no último minuto.
+- **Monitoramento Ambiental**: Renderização de gráficos históricos contínuos e displays numéricos dinâmicos para o acompanhamento da temperatura e umidade em tempo real.
 
-A comunicação entre as aplicações é estabelecida exclusivamente via Bluetooth Low Energy, utilizando uma arquitetura GATT customizada, otimizada através de operações bitwise e estruturas de dados compactadas, garantindo um tráfego de rede mínimo e respostas em tempo curto.
+- **Painel de Controle**: Tela para acionamento dos LEDs e seleção de cores RGB (via espectro HSV). Para garantir a consistência dos estados, a interface reage ativamente à Trava de Segurança do ESP32: se o bloqueio físico for ativado na protoboard, o aplicativo desabilita visual e logicamente seus controles, informando ao usuário que o hardware está operando em Modo Local.
 
+- **Métricas de Conexão**: Monitoramento da camada de rede através da plotagem em tempo real da força do sinal de rádio (RSSI em dBm) e da contagem de notificações enviadas pelo hardware no último minuto.
 
-Nas seções seguintes, são descritas as implementações do firmware e do aplicativo de forma detalhada, apresentando diagramas e fluxogramas.
+A ponte de comunicação entre essas duas pontas ocorre exclusivamente via BLE, adotando um perfil GATT personalizado. O tráfego de rede é minimizado pelo uso intensivo de operações lógicas (*bitwise*) e estruturas de dados compactadas (*payloads* binários de tamanho fixo), o que viabiliza tempos de resposta mínimos.
+
+Nas seções seguintes, as lógicas de implementação do firmware e do aplicativo são detalhadas, acompanhadas de diagramas de arquitetura e fluxogramas de execução.
 
 
 ---
 ## 3. Descrição do Firmware
-A arquitetura do firmware foi pensada para modularidade, segurança e eficiência na transferência de dados sobre o protocolo Bluetooth Low Energy (BLE). Todo o sistema foi construído em C++ utilizando a biblioteca otimizada `NimBLE-Arduino`. Abaixo, o funcionamento do firmware é detalhado em uma progressão lógica.
+A base de código do ESP32 foi desenvolvida inteiramente em C++, tendo a biblioteca otimizada `NimBLE-Arduino` como núcleo para a comunicação Bluetooth. Para evitar a criação de um script monolítico e difícil de manter, a arquitetura foi desenhada pensando na separação de responsabilidades.
 
 
 ### 3.1. Encapsulamento e Modularidade
-Para garantir a manutenibilidade, evitar o acoplamento excessivo de responsabilidades e facilitar a leitura, diversas lógicas de controle de hardware e protocolo foram encapsuladas em classes específicas e posteriormente instanciadas no arquivo raiz (`sketch.ino`). As abstrações implementadas são:
-- **Bluetooth** (`BleController`): Centraliza a configuração do servidor *NimBLE*, controle de serviços, características (GATT), gerenciamento de segurança e notificações do protocolo BLE..
-- **Botões** (`PulldownButton`): Implementa a leitura de botões do tipo push-button sob lógica *pull-down*, incorporando internamente o tratamento de *debounce* (ruído de contato) através da verificação de tempo via `millis()`.
+Para garantir a manutenibilidade e evitar o acoplamento excessivo, as lógicas de controle de hardware e os detalhes do protocolo foram abstraídos em classes específicas. Essas classes encapsulam a complexidade, entregando métodos limpos para serem utilizados no arquivo raiz (`sketch.ino`). As abstrações implementadas incluem:
+- **Bluetooth** (`BleController`): Centraliza a configuração do servidor *NimBLE*, controle de serviços, características (GATT), gerenciamento de segurança e notificações do protocolo BLE.
+- **Botões** (`PulldownButton`): Implementa a leitura de botões do tipo *push-button* sob lógica *pull-down*, incorporando internamente o tratamento de *debounce* (ruído de contato) através da verificação de tempo via `millis()`.
 - **Switches** (`SwitchPullDown`): Semelhante aos botões, mas focado no monitoramento de chaves estáticas de dois estados, levantando sinalizadores (*flags*) de mudança de estado de forma confiável.
-- **led RGB** (`RGBLed`): Abstrai a complexidade do controle PWM no ESP32 (utilizando a API `ledc`), permitindo o ajuste de cor direta através de parâmetros RGB de 0 a 255 via chamada `void setColor(int r, int g, int b);` . 
+- led RGB (`RGBLed`): Abstrai a complexidade do controle PWM no ESP32 (utilizando a API `ledc`), permitindo o ajuste de cor direta através de parâmetros RGB de 0 a 255 via chamada `void setColor(int r, int g, int b);` . 
 - **Leds** (`SimpleLed`): Simplifica a operação de pinos digitais de saída, abstraindo diretrizes como `pinMode` e `digitalWrite` em métodos literais como `setOn()` e `toggle()`. 
-- **Temporização** (`Timer`): Classe dedicada à execução de lógicas não-bloqueantes. Recebe um intervalo em milissegundos e um ponteiro de função (callback), acionando-o automaticamente apenas quando o tempo estipulado é alcançado. Internamente, previne problemas de *drift* (desvio de tempo) e o *overflow* do registrador de milissegundos.  
+- **Temporização** (`Timer`): Classe dedicada à execução de lógicas não-bloqueantes. Recebe um intervalo em milissegundos e um ponteiro de função (*callback*), acionando-o automaticamente apenas quando o tempo estipulado é alcançado. Internamente, previne problemas de *drift* (desvio de sincronia) e o estouro (*overflow*) do registrador interno de tempo do microcontrolador.
 
 
-Desta forma, o arquivo principal atua primariamente como uma máquina de estados e orquestrador. Ele instancia os controladores, delega os callbacks e processa o loop principal chamando os métodos de atualização (`.update()`), trabalhando sobre interfaces padronizadas que omitem a complexidade do *bare metal*.
+Dessa forma, o arquivo principal (`sketch.ino`) atua como uma máquina de estados e orquestrador geral do sistema. Sua função resume-se a instanciar os controladores, registrar os *callbacks* e processar o laço principal de execução (`loop`) chamando exclusivamente os métodos de atualização (`.update()`) de cada instância. Isso isola as regras de negócio de alto nível das complexidades físicas do hardware.
 
 
 ### 3.2. Bluetooth: Inicialização, Segurança e Advertising
-A rotina de inicialização do BLE foi customizada para atender os requisitos de desempenho e segurança. O módulo atua como um Servidor BLE e, durante o anúncio (*Advertising*), sua frequência de transmissão é limitada a intervalos de 400ms (`BLE_ADVERTISING_INTERVAL`) com o objetivo de reduzir o consumo energético do ESP32 enquanto aguarda conexões.  
 
-Para proteger o controle dos atuadores contra acessos não autorizados, a pilha de segurança do *NimBLE* foi configurada para forçar pareamento criptografado com proteção MITM (*Man-In-The-Middle*). A conexão exige a entrada de uma senha estática de 6 dígitos (*Passkey*) estipulada em código (`BLE_PASSWORD`).  
+A rotina de inicialização da camada Bluetooth foi projetada de forma personalizada para conciliar segurança, economia de energia no estado de espera e alta responsividade após o estabelecimento do vínculo (*handshake*). Toda essa gerência é concentrada no método `begin()` da classe `BleController`.
 
-Após o pareamento, varios dos parâmetros da conexão são alterados (*Connection Update Request*) para exigir tempos de resposta mais curtos (mínimo de 50ms e máximo de 100ms - `BLE_MIN_CONNECT_INTERVAL` e `BLE_MAX_CONNECT_INTERVAL`), com latência escrava zerada (*Slave Latency* - `BLE_SLAVE_LATENCI`) para garantir fluidez aos comandos do aplicativo e timeout de supervisão (*Supervision Timeout* - `BLE_SUPERVISION_TIMEOUT`) de 2 segundos para detectar quedas abruptas de conexão.
-
-Todas as configurações citadas podem ser encontradas e modificadas no topo do cabeçalho `BleController.h`.
+O fluxo operacional e suas respectivas justificativas técnicas são divididos em quatro etapas consecutivas:
 
 
+#### 3.2.1. Inicialização da Pilha BLE e Expansão de MTU
+O ciclo se inicia com a chamada de baixo nível `NimBLEDevice::init()`, que nomeia o dispositivo com o nome configurado na constante `BLE_NAME_ADVERTISING` (definido como "ESP32_NimBLE_Eduardo").
 
-### 3.4 Arquitetura do Perfil GATT (Serviços e Características)
+Imediatamente após subir a pilha de rádio, o firmware executa uma otimização de infraestrutura por meio do comando `NimBLEDevice::setMTU(512)`. Por padrão, o protocolo BLE utiliza uma Unidade Máxima de Transmissão (MTU) de apenas 23 bytes, o que fragmentaria pacotes maiores. Ao expandir o teto do MTU para 512 bytes, o ESP32 ganha a capacidade de trafegar arrays densos de dados (como o descarregamento de buffers históricos) em um único ciclo de transmissão, reduzindo o processamento e o tempo de rádio ativo.
+
+#### 3.2.2. Configuração de Segurança e Pareamento Autenticado
+Para impedir que usuários não autorizados interceptem a telemetria ou enviem comandos maliciosos aos atuadores, o sistema implementa segurança estrita baseada em criptografia com autenticação e proteção contra ataques de personificação (*Man-In-The-Middle* - MITM).
+
+```cpp
+NimBLEDevice::setSecurityAuth(true, true, true); // Bonding + MITM + Secure Connections
+NimBLEDevice::setSecurityPasskey(BLE_PASSWORD);
+NimBLEDevice::setSecurityIOCap(BLE_HS_IO_DISPLAY_ONLY);
+```
+
+A função `setSecurityAuth` ativa os sinalizadores de *Bonding* (armazenamento seguro do vínculo no chip), proteção MITM e conexões seguras nativas.
+
+Ao definir a propriedade de Input/Output como `BLE_HS_IO_DISPLAY_ONLY`, o sistema operacional do celular (Android) é forçado a interceptar o fluxo de conexão e abrir uma caixa de diálogo nativa exigindo que o usuário digite o código estático de 6 dígitos configurado em `BLE_PASSWORD` (ex: 666123). Sem essa senha, a chave de criptografia de curto prazo não é gerada e a conexão é rejeitada pela camada de pareamento do hardware.
+
+
+
+#### 3.2.3. Estratégia de Anúncio (Advertising e Scan Response)
+Com a pilha e a segurança prontas, o firmware configura o objeto `NimBLEAdvertising` para transmitir a presença do dispositivo. Para reduzir o consumo de energia enquanto o ESP32 aguarda conexões, a frequência de emissão dos pacotes de anúncio foi fixada em 400 ms (`BLE_ADVERTISING_INTERVAL`).
+
+Para otimizar o tamanho do pacote principal de anúncio, a arquitetura do firmware adota uma estratégia de divisão de carga útil:
+
+- **Pacote de Anúncio Principal (`advData`)**: Contém os sinalizadores básicos de descoberta (`setFlags(0x06)`) e anuncia apenas o UUID curto de 16 bits do Serviço Ambiental (`0x181A`).
+
+- **Pacote de Resposta de Escaneamento (`scanRespData`)**: O nome completo do dispositivo (`BLE_NAME_ADVERTISING`) e o UUID customizado de 128 bits do Serviço de Controle de Atuadores são alocados no buffer de *Scan Response*. Esse pacote complementar só é transmitido via rádio se o smartphone solicitar ativamente informações adicionais durante a varredura, poupando energia e banda do microcontrolador.
+
+
+#### 3.2.4. Negociação Dinâmica dos Parâmetros de Conexão
+Os parâmetros de rádio padrão estipulados pelos sistemas operacionais móveis priorizam economia de bateria, resultando em latências altas (frequentemente acima de 200 ms por transmissão). Como o projeto exige respostas rápidas aos comandos, o firmware implementa uma renegociação forçada assim que o *handshake* é bem-sucedido.
+
+Dentro do evento assíncrono `onConnect` do servidor, o ESP32 intercepta a conexão e dispara uma requisição de atualização de parâmetros (`updateConnParams`) diretamente para o identificador do cliente conectado (*connection handle*), que faz as seguintes modificações:
+
+- **Intervalo Mínimo e Máximo de Conexão (`BLE_MIN_CONNECT_INTERVAL` e `BLE_MAX_CONNECT_INTERVAL`)**: Fixados entre 50 ms e 100 ms para forçar o rádio do celular a conversar com o ESP32 em uma janela de tempo estreita, garantindo taxas de atualização altas para as plotagens e comandos.
+
+- **Latência Escrava (`BLE_SLAVE_LATENCI`)**: Definida como 0 para indicar ao ESP32 que não deve ignorar nenhum evento de chamada do celular, respondendo imediatamente a qualquer chamada na interface móvel.
+
+- **Timeout de Supervisão (`BLE_SUPERVISION_TIMEOUT`)**: Fixado em 2000 ms (2 segundos). Caso o smartphone se afaste ou sofra uma queda abrupta de energia, o hardware do ESP32 aguarda no máximo 2 segundos antes de fechar a conexão, os canais abertos e reativar o modo de anúncio via rádio.
+
+
+Todas as constantes, UUIDs e senhas de configuração do BLE estão centralizados no arquivo de cabeçalho `BleController.h`.
+
+
+
+### 3.3. Arquitetura do Perfil GATT (Serviços e Características)
 
 A comunicação entre o microcontrolador ESP32 (Servidor) e o aplicativo mobile (Cliente) é estruturada sobre o protocolo BLE (*Bluetooth Low Energy*) utilizando o perfil genérico de atributos (GATT). 
 
-Para otimizar o envio de dados e separar logicamente as responsabilidades do sistema, foram definidos três serviços principais contendo suas respectivas características. O sistema implementa estratégias de empacotamento em bytes e operações *bitwise* para reduzir o *overhead* de transmissão.
+Para otimizar o envio de dados e separar logicamente as responsabilidades do sistema, foram definidos três serviços principais contendo suas respectivas características.
 
 Abaixo, é descrita a tabela GATT completa utilizada para comunicação entre aplicações:
 
@@ -253,50 +307,45 @@ Abaixo, é descrita a tabela GATT completa utilizada para comunicação entre ap
 
 
 ### 3.4. Estratégias de Empacotamento de Dados (Camada GATT)
-Para evitar o desperdício de banda e o aumento de overhead na conversão de tipos via Bluetooth, o projeto descarta o envio de strings em texto plano, utilizando formatos binários eficientes.
+Para evitar o desperdício de banda e o aumento de *overhead* na conversão de tipos via Bluetooth, o projeto descarta o envio de *strings* em texto plano, utilizando formatos binários eficientes.
 
 
 #### 3.4.1. Estruturas Empacotadas (Dados Ambientais)
-Os valores de temperatura e umidade contêm casas decimais, e o envio de múltiplos `floats` via Bluetooth é custoso computacionalmente. A solução encontrada foi a utilização da estrutura `EnvDataPayload`, marcada com a diretiva de compilação `__attribute__((packed))` para inibir um possível alinhamento automático de memória na compilação. Os valores de ponto flutuante são multiplicados por 100 e convertidos para inteiros de 16 bits (`int16_t` e `uint16_t`). Assim, envia-se um pacote simples de apenas 6 bytes contendo Temperatura (°C), Temperatura (°F) e Umidade, que é desempacotado posteriormente no aplicativo móvel.
+Os valores de temperatura e umidade contêm casas decimais, e o envio de múltiplos `floats` via Bluetooth é custoso computacionalmente. A solução implementada foi a utilização da estrutura `EnvDataPayload`, marcada com a diretiva de compilação `__attribute__((packed))`, que assegura que o compilador não injete bytes ocultos de alinhamento de memória (*padding*). 
+
+Antes da transmissão, os valores de ponto flutuante são multiplicados por 100 e convertidos para inteiros de 16 bits (`int16_t` e `uint16_t`). Assim, envia-se um pacote simples de apenas 6 bytes contendo Temperatura (°C), Temperatura (°F) e Umidade, que é desempacotado posteriormente no aplicativo móvel.
 
 
 #### 3.4.2. Máscaras de Bits / Bitwise (Atuadores e Configuração)
-O controle das funcionalidades que podiam ser descritas em estados booleanos, como os dados de configuração da unidade de temperatura apresentada no aplicativo, o bloqueio de hardware dos controles e comandos de sincronização do estado dos leds físicos, foram comprimidos aplicando operações de manipulação de bits (*bitwise*) em pacotes de um único byte (`uint8_t`).  
+O controle das funcionalidades que podiam ser descritas em estados booleanos, como os dados de configuração da unidade de temperatura apresentada no aplicativo, o bloqueio de hardware dos controles e comandos de sincronização do estado dos leds físicos, foram comprimidos aplicando operações de manipulação de bits (*bitwise*) em pacotes de um byte (`uint8_t`).  
 
-No envio de configurações do hardware local para o aplicativo, realizado pelo comando `void sendConfigData(bool lockSimpleLeds, bool measure)`, as variáveis 'bloqueio de hardware' e 'unidade de medida do aplicativo' são codificadas da seguinte maneira: 
-- Bloqueio de hardware (`lockSimpleLeds`): 
-    - 0 - controles do aplicativo liberado (via chaves físicas bloqueado).
-    - 1 - controle dos leds bloqueados no aplicativo (via chaves físicas liberado)
-- Unidade de medida (`measure`): 
-    - 0 - Exibir dados de temperatura em graus Fahrenheit.
-    - 1 - Exibir dados de temperatura em graus Celcius.
+No sentido do ESP32 para o Aplicativo (notificação de configurações locais), a função `sendConfigData(bool lockSimpleLeds, bool measure)` notifica o cliente sobre as condições estruturais do dispositivo:
 
-Os dois bits representando a unidade de medida e o bloqueio são alocados, respectivamente, nas posições 0 e 1 do byte com a utilização de operadores OR (`|`) e shifts (`<<`), e então este é enviado ao aplicativo móvel.
+- **Unidade de Medida (`measure` - Bit 0)**: 0 sinaliza que o gráfico deve exibir Celsius; 1 sinaliza a exibição em Fahrenheit.
 
-Já na recepção de comandos enviados pelo aplicativo para o hardware, o byte recebido, que possui codificação semelhante à anterior, é lido com operadores AND (`&`). Nesta codificação, estão presentes:
-- bit 0 - estado do LED 1 (1 - ligar / 0 - desligar)
-- bit 1 - estado do LED 2 (1 - ligar / 0 - desligar)
-- bit 3 - comando para reiniciar os valores de mínimo e máximo de temperatura e humidade armazenados localmente (1 - resetar).
+- **Trava de Hardware (`lockSimpleLeds` - Bit 1)**: 0 indica que os controles do aplicativo estão liberados; 1 indica que o controle remoto foi bloqueado (Switch 1 ativo) e o controle local via *switchs* foi liberado.
 
-Ao ler o byte recebido, as funções de callback definidas pelo usuário (detalhadas na próxima seção) são chamadas para efetivar as alterações.
+Os estados são concatenados na mesma variável de 8 bits utilizando o operador lógico OR (`|`) aliado ao deslocamento de bits (shift `<<`).
+
+No sentido inverso, do aplicativo para o ESP32 (recepção de comandos do usuário), o byte injetado na característica BLE possui uma codificação semelhante e é decodificado no hardware pelo operador AND (`&`):
+- **Bit 0**: Estado do LED Vermelho (1 liga / 0 desliga).
+- **Bit 1**: Estado do LED Verde (1 liga / 0 desliga).
+- **Bit 2**: Comando de reinicialização das memórias Mín/Máx (1 dispara o reset).
+
+Após o desempacotamento lógico do byte, os valores extraídos são redirecionados para as funções de *callback* (detalhadas na próxima seção), que se encarregam de validações e da efetivação das alterações física nos componentes.
 
 
-### 3.5. Gestão Assíncrona e Segurança (Callbacks)
+### 3.5. Gestão Assíncrona e Segurança (*Callbacks*)
 
-Toda a lógica que liga a recepçãode mensagens via BLE e a efetivação física das ações no hardware (como por exemplo, acionar um LED após receber o comando vindo da aplicação móvel) ocorre através da inversão de controle por Callbacks. 
+A ponte entre a recepção de uma mensagem de rede (via BLE) e a execução física de uma ação no hardware (como, por exemplo, acionar um LED após receber o comando do aplicativo móvel) não ocorre de forma direta. Em vez disso, o sistema utiliza o princípio de Inversão de Controle por meio de funções delegadas (*Callbacks*).
 
+Este modelo foi necessário para garantir o isolamento entre a camada de comunicação (o rádio Bluetooth) e a camada de controle de estados (as regras de negócio do microcontrolador). Se a classe do Bluetooth manipulasse os pinos de hardware diretamente, o código se tornaria engessado, difícil de manter e propenso a falhas de segurança. Para evitar essa mistura de responsabilidades, o `BleController` gerencia estritamente o tráfego de dados, instanciando internamente classes herdadas da biblioteca nativa, como `NimBLEServerCallbacks` e `NimBLECharacteristicCallbacks`, que escutam os eventos da rede de forma passiva.
 
-<!-- TODO MELHORARRRRR - complementar especificação -->
-Este modelo de chamada se deu necessário devido ao isolamento das camadas de comunicação e controle de estado.
+Quando chegam comandos do cliente, a transição da informação do pacote Bluetooth para o hardware ocorre através de um repasse coordenado. Quando o smartphone escreve um novo comando na característica de atuação (ex: alterando o estado virtual de um LED), a função sobrescrita `onWrite` da caracteristica GATT é imediatamente chamada (por padrão) dentro do controlador BLE. Neste momento, o controlador desempacota e interpreta os bytes do pacote recebido e, em seguida, invoca um ponteiro de função específico (como o tipo definido `LedsCommandCallback`).
 
-O controlador BLE instancia classes herdadas como NimBLEServerCallbacks e NimBLECharacteristicCallbacks
+Esse ponteiro atua como um "mensageiro", transferindo a instrução já tratada para fora do escopo do Bluetooth e entregando-a ao arquivo raiz (`sketch.ino`), que foi o responsável por registrar essa função durante o ciclo de inicialização (`void ble_setup()`).
 
-
-<!-- TODO Afofar um pouco esta transição entre parágrafos -->
-
-Quando o celular escreve em uma característica de LED, a função `onWrite` no `BleController` processa os bytes brutos e aciona um ponteiro de função (`LedsCommandCallback`) previamente registrado pelo arquivo raiz. 
-
-Essa abordagem mantém o controlador BLE isolado das regras de negócio. O script principal, ao captar este callback, submete a instrução à validação de segurança local: caso o Switch 1 físico indique "Controle Local" (`isLedsBlockedToApp == true`), o comando via aplicativo é silenciosamente ignorado e não atua sobre os LEDs.
+Essa abordagem mantém o módulo BLE completamente alheio às regras de negócio, e também estabelece uma barreira de segurança na aplicação. O script principal atua como um "firewall físico": ao receber a chamada do callback, ele submete a instrução remota à validação de estado local antes de alterar o estado de qualquer pino. Dessa forma, por exemplo, caso o operador humano tenha acionado o *Switch* 1 na protoboard, indicando que o sistema está em Modo de Controle Local (sinalizado pela *flag* `isLedsBlockedToApp` == true), o comando advindo do aplicativo é interceptado e ignorado, não exercendo nenhuma modificação sobre os atuadores.
 
 O diagrama abaixo apresenta, como exemplo, o fluxo de execução dos comandos de controle dos leds simples, desde o recebimento dos comandos enviados pelo aplicativo até a reflexão das ordens nos atuadores em hardware. 
 
@@ -319,8 +368,7 @@ flowchart TD
         H -- Sim<br>(Trava Ativa) --> I[Log Serial:<br>Comando Ignorado]
         I --> J([Fim da Rotina -<br>Hardware Intacto])
         
-        H -- Não<br>(Liberado) --> K[Atualiza instâncias locais<br>de SimpleLed]
-        K --> L[Comando digitalWrite<br>é acionado fisicamente]
+        H -- Não<br>(Liberado) --> L[Atualiza instâncias locais<br>de SimpleLed]
         L --> M([Fim da Rotina -<br>LEDs Atualizados])
     end
     
@@ -328,19 +376,13 @@ flowchart TD
     style L fill:#d4edda,stroke:#28a745,stroke-width:2px;
 ```
 
-<!-- TODO Complementar bastante essa explicação - afofar e dar mais detalhes -->
-### 3.5. Telemetria e Indicadores Operacionais
-Para atender ao requisito de monitoramento do link de dados, a camada do ESP32 processa indicadores de conexão de maneira ativa e passiva.
 
-- Sinal de Conexão (RSSI): Uma chamada de baixo nível (`ble_gap_conn_rssi`) determina a intensidade de sinal em decibéis, e o notifica ativamente ao cliente a cada `BLE_RSSI_TRANSMISSION_INTERVAL` segundos através de um temporizador. 
+### 3.6. Telemetria e Indicadores Operacionais
+Para atender ao requisito de auditoria e monitoramento da qualidade do link de dados, a camada do ESP32 processa os indicadores de conexão empregando duas abordagens distintas de comunicação GATT: o envio ativo (Notificações) e a leitura passiva (Requisições do cliente).
 
-- Contagem do número de notificações: O dispositivo contabiliza a emissão de cada notificação usando um vetor estático circular de 60 posições (`notifyBuckets`). A cada segundo, o índice do vetor - controlado por um temporizador externo ao controlador de BLE, que chama a cada 1 segundo o método `void updateNotificationWindow()` - avança, sendo zerado em seguida. O total de notificações lidas pelo aplicativo representa sempre a soma do vetor inteiro, compondo os dados reais dos últimos 60 segundos.  
+Para o envio do sinal de Conexão (RSSI - Abordagem Ativa), o firmware assume a responsabilidade de notificar constantemente a aplicação móvel. Através de uma chamada de baixo nível à API do rádio (`le_gap_conn_rssi`), o ESP32 coleta da interface física de rede a atenuação do sinal em decibéis (dBm) no exato momento da requisição. Esse valor é então injetado na característica e notificado ativamente ao cliente a cada ciclo de tempo definido por `BLE_RSSI_TRANSMISSION_INTERVAL` (através de um temporizador dedicado), garantindo que o gráfico do aplicativo se mantenha vivo sem gerar requisições de rede desnecessárias. 
 
-### 3.6. Sincronismo e Gestão de Tempo (A Lógica não-bloqueante)
-
-A principal vantagem da arquitetura implementada é a não utilização de funções bloqueantes que paralisam o microcontrolador, impedindo leituras de hardware ou manutenção de rádio. O loop contínuo (função `loop()`) processa leituras de botões e sensores e atualiza a máquina de estados em altíssima velocidade.  
-
-A cadência de eventos lentos é governada por instâncias da classe `Timer`. O envio de dados ao celular (`envDataTransmitionTimer`), as atualizações de RSSI (`rssiTransmitionTimer`) e a rotação da janela de telemetria (`notificationWindowTimer`) são executados em instâncias paralelas não-bloqueantes. Até mesmo a restrição de tempo do sensor DHT22 (que requer intervalos de 4 segundos entre as coletas) é tratada verificando a diferença entre o timestamp de inicialização e o tempo corrido, evitando travamentos no laço principal do firmware.
+Já para computar a quantidade de notificações que o ESP32 emitiu no último minuto (Throughput - Abordagem Passiva), foi implementado um algoritmo de janela deslizante baseada em um vetor circular estático de 60 posições (`notifyBuckets[60]`). Toda vez que o ESP envia um pacote, a função interna `registerNotification()` incrementa o valor da posição atual do vetor. Paralelamente, um temporizador externo ao módulo BLE (`notificationWindowTimer`) dispara o método `updateNotificationWindow()` a cada 1000 milissegundos exatos, rotacionando o índice do vetor para o "próximo segundo" e zerando o seu conteúdo, apagando o dado mais velho (relativo ao momento de exatamente 61 segundo antes). Assim, quando o aplicativo móvel realiza uma leitura (`Read Request`), o ESP32 soma o valor das posições do vetor e envia a informação computada. computada.
 
 
 
@@ -351,26 +393,26 @@ O cliente móvel foi desenvolvido utilizando o framework Flutter, garantindo uma
 
 A arquitetura do aplicativo divide as responsabilidades em seções lógicas independentes, otimizando o gerenciamento de estado e a alocação de memória do dispositivo móvel.
 
-O código fonte principal do aplicativo pode ser encontrado em `apk/lib`.
+O código fonte principal do aplicativo pode ser encontrado em `apk/lib`. Uma versão pré-compilada para Android pode ser encontrada em `bin/app-release.apk`. Instruções de compilação do codigo-fonte podem ser encontradas na seção [Instruções de Compilação e Instalação do Aplicativo](#5-instruções-de-compilação-e-instalação-do-aplicativo)
 
 
 ### 4.1. Escaneamento, Permissões e Handshake de Segurança
 
-A tela inicial (`ConnectionScreen`) atua como a porta de entrada segura do sistema. Antes de inicializar o rádio BLE, o aplicativo gerencia dinamicamente as permissões de sistema exigidas pelo Android (Bluetooth Scan, Connect e Location) através do pacote `permission_handler`, garantindo que não ocorram falhas de acesso.
+A tela inicial (`ConnectionScreen`) atua como a porta de entrada segura do sistema. Antes de inicializar o rádio BLE, o aplicativo gerencia dinamicamente as permissões de sistema exigidas pelo Android (*Bluetooth Scan, Connect e Location*) através do pacote `permission_handler`, garantindo que não ocorram falhas de acesso.
 
-Durante o escaneamento, o aplicativo aplica um filtro para exibir exclusivamente dispositivos cujo pacote de advertising contenha o nome esperado (`ESP32_NimBLE_Eduardo`). O fluxo de conexão implementa os requisitos de segurança mitigando ataques MITM: a chamada `device.createBond()` força a requisição do sistema operacional para que o usuário insira o Passkey. Caso o pareamento seja rejeitado ou a senha incorreta, a conexão é abortada de forma limpa, liberando a thread.
+Durante o escaneamento, o aplicativo aplica um filtro para exibir exclusivamente dispositivos cujo pacote de *advertising* contenha o nome esperado (`ESP32_NimBLE_Eduardo`). O fluxo de conexão implementa os requisitos de segurança mitigando ataques MITM: a chamada `device.createBond()` força a requisição do sistema operacional para que o usuário insira o *Passkey*. Caso o pareamento seja rejeitado ou a senha incorreta, a conexão é abortada de forma limpa, liberando a *thread*.
 
 ### 4.2. Gerenciamento do Ciclo de Vida (Dashboard)
 Uma vez conectado, o usuário é redirecionado ao `DashboardScreen`, que orquestra a navegação entre os três painéis principais usando um `BottomNavigationBar`. Esta tela possui duas responsabilidades principais:
 
-- **Resiliência e Auto-Reconexão**: Uma escuta (`StreamSubscription`) monitora continuamente o estado do rádio. Se o dispositivo sofrer uma desconexão não intencional (por perda de sinal ou reinicialização do ESP32), o aplicativo exibe um alerta vermelho em tela e entra em um laço de tentativas de reconexão automática em background, restaurando a sessão de forma transparente quando o sinal retorna.
+- **Resiliência e Auto-Reconexão**: Uma escuta (`StreamSubscription`) monitora continuamente o estado do rádio. Se o dispositivo sofrer uma desconexão não intencional (por perda de sinal ou reinicialização do ESP32), o aplicativo exibe um alerta vermelho em tela e entra em um laço de tentativas de reconexão automática em *background*, restaurando a sessão de forma transparente quando o sinal retorna.
 
-- **Desconexão Segura (Graceful Shutdown)**: Para evitar conexões pendentes (dangling connections) e vazamento de memória (memory leaks), o widget `PopScope` foi utilizado para interceptar a ação do botão nativo de "voltar" do smartphone. Quando o usuário decide sair, o aplicativo cancela as escutas, dispara o comando de desconexão e destrói as instâncias antes de retornar à tela inicial.
+- **Desconexão Segura (Graceful Shutdown)**: Para evitar conexões pendentes (*dangling connections*) e vazamento de memória (*memory leaks*), o widget `PopScope` foi utilizado para interceptar a ação do botão nativo de "voltar" do smartphone. Quando o usuário decide sair, o aplicativo cancela as escutas, dispara o comando de desconexão e destrói as instâncias antes de retornar à tela inicial.
 
 
 
 ### 4.3. Painel de Monitoramento: Desempacotamento e Plotagem
-A seção de monitoramento (`MonitoringSection`) subscreve-se às características do Serviço GATT fornecido pelo. O aplicativo implementa a lógica inversa do firmware para otimização de banda: os 6 bytes recebidos do hardware são alocados em um `ByteData`, de onde se extraem os valores brutos como inteiros de 16 bits Little-Endian (`getInt16` e `getUint16`), que são então divididos por 100.0 para resgatar a precisão de ponto flutuante das temperaturas e umidade.
+A seção de monitoramento (`MonitoringSection`) subscreve-se às características do Serviço GATT fornecido peloESP32. O aplicativo implementa a lógica inversa do firmware para otimização de banda: os 6 bytes recebidos do hardware são alocados em um `ByteData`, de onde se extraem os valores brutos como inteiros de 16 bits *Little-Endian* (`getInt16` e `getUint16`), que são então divididos por 100.0 para resgatar a precisão de ponto flutuante das temperaturas e umidade.
 
 Os gráficos históricos dinâmicos são construídos usando a biblioteca `fl_chart`. O aplicativo mantém o controle da cardinalidade dos dados utilizando listas restritas a 60 pontos (`FlSpot`); quando um novo dado chega, o mais antigo é removido da fila rotativa, mantendo a janela de exibição sempre fluida e representando os minutos mais recentes da coleta.
 
@@ -379,27 +421,25 @@ Os gráficos históricos dinâmicos são construídos usando a biblioteca `fl_ch
 
 A interface de atuação (`ControlSection`) não apenas envia comandos, mas reflete o estado real e as restrições impostas pelo hardware.
 
-Para respeitar o bloqueio físico (acionado pelo Switch 1 da protoboard), o app subscreve à característica de configuração do dispositivo. Caso a flag de bloqueio (`isHardwareLocked`) seja acionada, o aplicativo reage visualmente envolvendo todos os controles em um IgnorePointer e reduzindo a opacidade (_Opacity_), impossibilitando interações de toque e alertando o usuário de que o dispositivo está em "Modo Local".
+Para respeitar o bloqueio físico (acionado pelo *Switch* 1 da *protoboard*), o app subscreve à característica de configuração do dispositivo. Caso a *flag* de bloqueio (`isHardwareLocked`) seja acionada, o aplicativo reage visualmente envolvendo todos os controles em um `IgnorePointer` e reduzindo a opacidade (`_Opacity_`), impossibilitando interações de toque e alertando o usuário de que o dispositivo está em "Modo Local".
 
 A manipulação dos atuadores segue padrões específicos:
 
 - **LEDs Simples**: Comandos são enviados mascarando os booleanos dos botões virtuais em um único payload de 1 byte via operação matemática (ex: `payload |= 0x01` para o LED Vermelho).
 
-- **LED RGB**: Um Color Picker converte a cor escolhida na interface visual para três parâmetros (R, G, B) e os envia ao microcontrolador sob a diretiva _WriteWithoutResponse_, garantindo que o envio contínuo gerado pelo arrastar do dedo na paleta de cores não cause engarrafamento na fila de requisições do Bluetooth.
+- **LED RGB**: Um Color Picker converte a cor escolhida na interface visual para três parâmetros (R, G, B) e os envia ao microcontrolador sob a diretiva `_WriteWithoutResponse_`, garantindo que o envio contínuo gerado pelo arrastar do dedo na paleta de cores não cause engarrafamento na fila de requisições do Bluetooth.
 
 ### 4.5. Painel de Sinal: Auditoria de Conexão Ativa e Passiva
 O terceiro painel (`ConnectionMetricsSection`) foi desenhado para expor informações sobre a estabilidade do link de comunicação. Para otimizar os recursos do dispositivo móvel e do hardware, foram adotadas duas estratégias de leitura concorrentes:
 
 - **Leitura Passiva (RSSI)**: O sinal é recebido e processado via *Notify*. Como a força do sinal (dBm) trafega via `int8` (com sinal), mas a linguagem Dart tipifica nativamente bytes sem sinal (0-255), aplica-se um tratamento condicional no buffer recebido (`bytes.first > 127 ? bytes.first - 256 : bytes.first`) para recompor o valor negativo correto da atenuação do sinal.
 
-**Leitura Ativa (Polling de Notificações)**: Ao invés de o ESP32 sobrecarregar a rede notificando sempre que a janela rotativa de pacotes muda, o aplicativo instancia um `Timer.periodic` de 2 segundos. Este timer dispara comandos de leitura ativa (Read Request) para a característica do contador.
+**Leitura Ativa (Polling de Notificações)**: Ao invés de o ESP32 sobrecarregar a rede notificando sempre que a janela rotativa de pacotes muda, o aplicativo instancia um `Timer.periodic` de 2 segundos. Este timer dispara comandos de leitura ativa (*Read Request*) para a característica do contador.
 
 --- 
 ## 5. Instruções de Compilação e Instalação do Aplicativo
 O aplicativo móvel foi projetado para operar em smartphones com o sistema operacional Android 10 ou superior (API nível 29+). Para reproduzir o ambiente de desenvolvimento, compilar o código-fonte a partir do zero ou gerar o pacote de instalação final (APK), siga os procedimentos descritos abaixo.
 
-
-<!-- TODO Fazer diretório bin -->
 Caso prefira, é possível também baixar e instalar a versão compilada que se encontra no diretório `/bin` 
 
 
